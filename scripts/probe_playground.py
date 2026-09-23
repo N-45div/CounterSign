@@ -204,6 +204,10 @@ def main() -> int:
     if not token:
         print("No token. Pass --token or set RING_TOKEN (Playground > Generate Token).")
         return 2
+    if not re.fullmatch(r"eyJ[\w-]+\.[\w-]+\.[\w-]+", token):
+        print("That doesn't look like a Ring token. Copy it from Playground > Generate Token;")
+        print("it starts with eyJ and has two dots. The whole `export TOKEN=\"...\"` line also works.")
+        return 2
 
     claims = jwt_claims(token)
     exp = claims.get("exp")
