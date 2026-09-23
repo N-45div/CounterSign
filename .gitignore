@@ -1,0 +1,10 @@
+# Probe output: Ring snapshots, clips and raw API responses. Never commit these.
+probe-out/
+
+# Secrets
+.env
+*.token
+
+__pycache__/
+*.pyc
+.venv/
