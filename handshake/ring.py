@@ -121,6 +121,12 @@ class RingClient:
             ))
         return out
 
+    def online(self, device_id: str) -> bool | None:
+        """Whether the device is connected right now (None if Ring does not say)."""
+        attrs = self._get_json(f"/v1/devices/{device_id}/status").get("data", {}).get("attributes", {})
+        value = attrs.get("online")
+        return value if isinstance(value, bool) else None
+
     def capabilities(self, device_id: str) -> dict:
         return self._get_json(f"/v1/devices/{device_id}/capabilities")
 

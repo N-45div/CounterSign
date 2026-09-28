@@ -110,3 +110,10 @@ def test_other_errors_raise_ring_error():
     with pytest.raises(RingError) as err:
         client(s).devices()
     assert err.value.status == 503 and not isinstance(err.value, RingAuthError)
+
+
+def test_online_reads_the_status_attribute():
+    s = FakeSession().on("GET", f"/v1/devices/{DEV}/status", lambda c: response(200, {
+        "data": {"type": "device-status", "id": "x.status", "attributes": {"online": False}}
+    }))
+    assert client(s).online(DEV) is False
