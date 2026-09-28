@@ -39,6 +39,8 @@ class WitnessReport:
     confidence: float
     model: str
     instruction_like_text: bool = False  # text in the frame addressed to a machine
+    flagged_text: tuple[str, ...] = ()  # the lines Doorman flagged, for the resident
+    description: str = ""  # the model's short note, for the resident; never signed
 
 
 @dataclass(frozen=True)
