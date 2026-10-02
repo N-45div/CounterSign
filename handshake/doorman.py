@@ -30,6 +30,9 @@ _PATTERNS = [
     r"\b(verdict|confidence|tool[_ ]?call|json)\b",
     r"\b(mark|marked|report|confirm|set|record)\b.{0,25}\b(as )?(delivered|received|present)\b",
     r"\b(delivery|package|parcel)\b.{0,15}\b(confirmed|verified)\b",
+    # A note addressed to the camera or the system reading it.
+    r"\b(note|message|attention|instructions?|memo)\s+(to|for)\s+(the\s+)?(ai|camera|model|assistant|agent|bot|system|verifier)\b",
+    r"\bai\s+(camera|system|model|agent|assistant|verifier)\b",
 ]
 _RULES = [re.compile(p, re.IGNORECASE) for p in _PATTERNS]
 
@@ -38,16 +41,28 @@ def _normalise(text: str) -> str:
     # Undo simple evasions: s.y.s.t.e.m, s_y_s_t_e_m, extra spaces, full-width colons.
     text = text.replace("：", ":")
     text = re.sub(r"(?<=\w)[._\-](?=\w\b|\w[._\-])", "", text)
+    # OCR often reads a capital I as a lowercase l: "Al agents", "Al camera".
+    text = re.sub(r"\bAl\b(?=\s+(agents?|camera|system|model|assistant|bot|verifier)\b)", "AI", text)
     return re.sub(r"\s+", " ", text).strip()
 
 
+def _hit(text: str) -> bool:
+    cleaned = _normalise(text)
+    return bool(cleaned) and any(rule.search(cleaned) for rule in _RULES)
+
+
 def scan(lines: Iterable[str]) -> tuple[str, ...]:
-    """Return the lines that read as instructions to a machine."""
-    flagged = []
-    for line in lines:
-        cleaned = _normalise(line)
-        if cleaned and any(rule.search(cleaned) for rule in _RULES):
-            flagged.append(line.strip())
+    """Return the lines that read as instructions to a machine, each once.
+
+    OCR splits a note into lines, and an instruction can be spread across
+    them so that no single line looks like one. The lines are also checked
+    as one block; if only the block reads as an instruction, it is returned.
+    """
+    lines = [line.strip() for line in lines if line and line.strip()]
+    flagged = list(dict.fromkeys(line for line in lines if _hit(line)))
+    joined = " ".join(lines)
+    if not flagged and _hit(joined):
+        flagged.append(joined)
     return tuple(flagged)
 
 

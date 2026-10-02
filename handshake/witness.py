@@ -107,13 +107,15 @@ class NovaWitness:
 
     def compare(self, before: Frame, after: Frame) -> WitnessReport:
         answer = self._ask(before, after)
-        ocr_lines = self.ocr.read(before.image) + self.ocr.read(after.image) if self.ocr else []
+        # Each text source is scanned on its own, so lines from different
+        # frames are never joined into an instruction that is not there.
+        sources = [self.ocr.read(before.image), self.ocr.read(after.image)] if self.ocr else []
+        if answer is not None:
+            sources.append([t for t in answer.get("visible_text", []) if isinstance(t, str)])
+        flagged = tuple(dict.fromkeys(line for source in sources for line in scan(source)))
         if answer is None:
-            flagged = scan(ocr_lines)
             return WitnessReport(None, None, 0.0, self.model_id, bool(flagged), flagged)
 
-        model_text = [t for t in answer.get("visible_text", []) if isinstance(t, str)]
-        flagged = scan(ocr_lines + model_text)
         try:
             confidence = min(max(float(answer.get("confidence", 0)), 0.0), 1.0)
         except (TypeError, ValueError):
