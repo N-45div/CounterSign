@@ -117,3 +117,24 @@ def test_witness_failure_is_inconclusive_not_a_crash():
 def test_offline_camera_with_no_visit_is_inconclusive():
     issued = house(FakeRing([], online=False), FakeWitness()).verify(CLAIM)
     assert (issued.verdict.value, issued.reason) == ("inconclusive", "camera_not_recording")
+
+
+def test_the_camera_is_picked_on_first_use_when_none_is_configured():
+    calls = []
+
+    def resolve():
+        calls.append(1)
+        return CONFIG.device_id
+
+    blank = HouseConfig("h1", CONFIG.issuer, "", "salt")
+    h = House(blank, FakeRing(visit()), FakeWitness(), HouseKey.generate(), MemoryStore(),
+              clock_ms=lambda: AFTER_WINDOW, new_id=lambda: "r-1", device_resolver=resolve)
+    assert h.verify(CLAIM).verdict.value == "delivered"
+    assert h.device_id == CONFIG.device_id and calls == [1]  # resolved once, then cached
+
+
+def test_no_camera_and_no_resolver_is_a_ring_error():
+    blank = HouseConfig("h1", CONFIG.issuer, "", "salt")
+    h = House(blank, FakeRing(visit()), FakeWitness(), HouseKey.generate(), MemoryStore(), clock_ms=lambda: AFTER_WINDOW)
+    with pytest.raises(RingError):
+        h.verify(CLAIM)

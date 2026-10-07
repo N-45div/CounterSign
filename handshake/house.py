@@ -77,6 +77,7 @@ class House:
         store: MemoryStore,
         clock_ms: Callable[[], int] = lambda: int(time.time() * 1000),
         new_id: Callable[[], str] = lambda: uuid.uuid4().hex,
+        device_resolver: Callable[[], str] | None = None,
     ):
         self.config = config
         self.ring = ring
@@ -85,6 +86,17 @@ class House:
         self.store = store
         self._now = clock_ms
         self._new_id = new_id
+        self._resolve_device = device_resolver
+        self._device_id = config.device_id
+
+    @property
+    def device_id(self) -> str:
+        """The configured camera, or the one the resolver picks on first use."""
+        if not self._device_id:
+            if self._resolve_device is None:
+                raise RingError(400, "No device", "no Ring device configured")
+            self._device_id = self._resolve_device()
+        return self._device_id
 
     def jwks(self) -> dict:
         return {"keys": [self.key.public_jwk()]}
@@ -95,7 +107,7 @@ class House:
         if now < claim.claimed_at_ms + SETTLE_MS:
             raise NotReady(claim.claimed_at_ms + SETTLE_MS, "Ring is still filing events for this moment")
 
-        device = self.config.device_id
+        device = self.device_id
         events = self.ring.motion_events(device, window.start_ms - HISTORY_PAD_MS, min(now, window.end_ms + HISTORY_PAD_MS))
         obs = observe(claim, events)
         coverage = self.store.coverage(device, window, self._online())
@@ -117,16 +129,16 @@ class House:
 
     def _online(self) -> bool | None:
         try:
-            return self.ring.online(self.config.device_id)
+            return self.ring.online(self.device_id)
         except RingError:
             return None
 
     def _frame(self, at_ms: int, fallback_start_ms: int, fallback_end_ms: int) -> Media:
         """The frame nearest a moment, else the latest one recorded in a fallback span."""
         try:
-            return self.ring.snapshot_at(self.config.device_id, at_ms)
+            return self.ring.snapshot_at(self.device_id, at_ms)
         except RingError:
-            return self.ring.snapshot_latest(self.config.device_id, fallback_start_ms, fallback_end_ms)
+            return self.ring.snapshot_latest(self.device_id, fallback_start_ms, fallback_end_ms)
 
     def _witness(self, obs: Observation) -> tuple[WitnessReport | None, list[Evidence], dict[str, bytes]]:
         ep = obs.best
