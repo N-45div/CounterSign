@@ -1,0 +1,173 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Transform: AWS::Serverless-2016-10-31
+Description: Handshake. Signed doorstep delivery receipts, witnessed by a Ring camera.
+
+Parameters:
+  HouseSecretArn:
+    Type: String
+    Description: Secrets Manager ARN of the house secret (scripts/bootstrap_house.py creates it)
+  RingTokenSecretArn:
+    Type: String
+    Description: Secrets Manager ARN of the Ring access token (scripts/set_ring_token.py updates it)
+  PublicUrl:
+    Type: String
+    Default: ""
+    Description: The house's public URL, used as the receipt issuer. Set after the first deploy.
+  DeviceId:
+    Type: String
+    Default: ""
+    Description: Ring device id of the camera facing the drop point. Empty means the first device.
+  WitnessModel:
+    Type: String
+    Default: us.amazon.nova-lite-v1:0
+    Description: Bedrock model or inference profile id for the witness
+
+Globals:
+  Function:
+    Runtime: python3.12
+    Architectures: [arm64]
+    CodeUri: ../build/lambda
+    MemorySize: 1024
+    Timeout: 60
+    Environment:
+      Variables:
+        HANDSHAKE_TABLE: !Ref Table
+        HANDSHAKE_BUCKET: !Ref FramesBucket
+        HANDSHAKE_QUEUE_URL: !Ref ClaimsQueue
+        HANDSHAKE_HOUSE_SECRET: !Ref HouseSecretArn
+        HANDSHAKE_RING_TOKEN_SECRET: !Ref RingTokenSecretArn
+        HANDSHAKE_PUBLIC_URL: !Ref PublicUrl
+        HANDSHAKE_DEVICE_ID: !Ref DeviceId
+        HANDSHAKE_WITNESS_MODEL: !Ref WitnessModel
+
+Resources:
+  Table:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - { AttributeName: pk, AttributeType: S }
+        - { AttributeName: sk, AttributeType: S }
+      KeySchema:
+        - { AttributeName: pk, KeyType: HASH }
+        - { AttributeName: sk, KeyType: RANGE }
+      TimeToLiveSpecification: { AttributeName: expires_at, Enabled: true }
+      PointInTimeRecoverySpecification: { PointInTimeRecoveryEnabled: true }
+      SSESpecification: { SSEEnabled: true }
+
+  FramesBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault: { SSEAlgorithm: AES256 }
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      OwnershipControls:
+        Rules: [{ ObjectOwnership: BucketOwnerEnforced }]
+      LifecycleConfiguration:
+        Rules:
+          - Id: expire-evidence-frames
+            Status: Enabled
+            Prefix: frames/
+            ExpirationInDays: 90
+
+  FramesBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref FramesBucket
+      PolicyDocument:
+        Statement:
+          - Sid: TlsOnly
+            Effect: Deny
+            Principal: "*"
+            Action: "s3:*"
+            Resource: [!GetAtt FramesBucket.Arn, !Sub "${FramesBucket.Arn}/*"]
+            Condition: { Bool: { "aws:SecureTransport": "false" } }
+
+  DeadLetterQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      MessageRetentionPeriod: 1209600
+
+  ClaimsQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      VisibilityTimeout: 360
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt DeadLetterQueue.Arn
+        maxReceiveCount: 5
+
+  ApiFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Description: Handshake HTTP API (claims, receipts, public keys, Ring webhooks)
+      Handler: handshake.lambda_app.handler
+      FunctionUrlConfig:
+        AuthType: NONE
+      Policies:
+        - DynamoDBCrudPolicy: { TableName: !Ref Table }
+        - S3CrudPolicy: { BucketName: !Ref FramesBucket }
+        - SQSSendMessagePolicy: { QueueName: !GetAtt ClaimsQueue.QueueName }
+        - Statement:
+            - Effect: Allow
+              Action: secretsmanager:GetSecretValue
+              Resource: [!Ref HouseSecretArn, !Ref RingTokenSecretArn]
+            - Effect: Allow
+              Action: bedrock:InvokeModel
+              Resource:
+                - !Sub "arn:${AWS::Partition}:bedrock:*::foundation-model/amazon.nova-*"
+                - !Sub "arn:${AWS::Partition}:bedrock:${AWS::Region}:${AWS::AccountId}:inference-profile/us.amazon.nova-*"
+            - Effect: Allow
+              Action: textract:DetectDocumentText
+              Resource: "*"
+
+  ApiPublicInvoke:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref ApiFunction
+      Action: lambda:InvokeFunction
+      Principal: "*"
+      InvokedViaFunctionUrl: true
+
+  WorkerFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Description: Handshake retry worker (claims due for another attempt)
+      Handler: handshake.lambda_app.worker_handler
+      Policies:
+        - DynamoDBCrudPolicy: { TableName: !Ref Table }
+        - S3CrudPolicy: { BucketName: !Ref FramesBucket }
+        - SQSSendMessagePolicy: { QueueName: !GetAtt ClaimsQueue.QueueName }
+        - Statement:
+            - Effect: Allow
+              Action: secretsmanager:GetSecretValue
+              Resource: [!Ref HouseSecretArn, !Ref RingTokenSecretArn]
+            - Effect: Allow
+              Action: bedrock:InvokeModel
+              Resource:
+                - !Sub "arn:${AWS::Partition}:bedrock:*::foundation-model/amazon.nova-*"
+                - !Sub "arn:${AWS::Partition}:bedrock:${AWS::Region}:${AWS::AccountId}:inference-profile/us.amazon.nova-*"
+            - Effect: Allow
+              Action: textract:DetectDocumentText
+              Resource: "*"
+      Events:
+        DueClaims:
+          Type: SQS
+          Properties:
+            Queue: !GetAtt ClaimsQueue.Arn
+            BatchSize: 1
+            FunctionResponseTypes: [ReportBatchItemFailures]
+
+Outputs:
+  ApiUrl:
+    Value: !GetAtt ApiFunctionUrl.FunctionUrl
+  TableName:
+    Value: !Ref Table
+  FramesBucketName:
+    Value: !Ref FramesBucket
+  ClaimsQueueUrl:
+    Value: !Ref ClaimsQueue
