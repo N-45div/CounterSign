@@ -30,6 +30,23 @@ class MemoryStore:
     frames: dict[str, dict[str, bytes]] = field(default_factory=dict)
     # device id -> [(at_ms, online)] in arrival order
     status_log: dict[str, list[tuple[int, bool]]] = field(default_factory=dict)
+    claims: dict[str, object] = field(default_factory=dict)
+    seen_webhooks: set[str] = field(default_factory=set)
+
+    # -- claims --------------------------------------------------------------
+
+    def put_claim(self, record) -> None:
+        self.claims[record.claim_id] = record
+
+    def get_claim(self, claim_id: str):
+        return self.claims.get(claim_id)
+
+    def first_sighting(self, request_id: str) -> bool:
+        """True the first time a webhook request id is seen (Ring retries deliveries)."""
+        if request_id in self.seen_webhooks:
+            return False
+        self.seen_webhooks.add(request_id)
+        return True
 
     # -- receipts ------------------------------------------------------------
 
