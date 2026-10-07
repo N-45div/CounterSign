@@ -22,11 +22,15 @@ from .ring import RingAuthError
 
 OAUTH_URL = "https://oauth.ring.com/oauth/token"
 EARLY_REFRESH_S = 120
+# Secrets Manager will not store an empty secret, so a fresh house starts with this.
+PLACEHOLDER = "not-set"
 
 
 def clean_token(raw: str) -> str:
     """Accept a bare token, a JSON {"access_token": ...}, or the Playground's `export TOKEN="..."` line."""
     raw = (raw or "").strip()
+    if raw == PLACEHOLDER:
+        return ""
     if raw.startswith("{"):
         try:
             return str(json.loads(raw).get("access_token", "")).strip()

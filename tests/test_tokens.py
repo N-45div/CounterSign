@@ -78,3 +78,8 @@ def test_a_rejected_refresh_is_an_auth_error():
     token = RefreshingToken("cid", "secret", lambda: "spent", lambda v: None, session=oauth)
     with pytest.raises(RingAuthError):
         token()
+
+
+def test_the_placeholder_secret_means_no_token():
+    with pytest.raises(RingAuthError):
+        SecretToken(FakeSecrets(["not-set"]), "s")()
