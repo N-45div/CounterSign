@@ -26,7 +26,6 @@ Globals:
   Function:
     Runtime: python3.12
     Architectures: [arm64]
-    CodeUri: ../build/lambda
     MemorySize: 1024
     Timeout: 60
     Environment:
@@ -106,6 +105,7 @@ Resources:
     Properties:
       Description: Handshake HTTP API (claims, receipts, public keys, Ring webhooks)
       Handler: handshake.lambda_app.handler
+      CodeUri: ../build/lambda  # per function: `aws cloudformation package` ignores Globals
       FunctionUrlConfig:
         AuthType: NONE
       Policies:
@@ -138,6 +138,7 @@ Resources:
     Properties:
       Description: Handshake retry worker (claims due for another attempt)
       Handler: handshake.lambda_app.worker_handler
+      CodeUri: ../build/lambda  # per function: `aws cloudformation package` ignores Globals
       Policies:
         - DynamoDBCrudPolicy: { TableName: !Ref Table }
         - S3CrudPolicy: { BucketName: !Ref FramesBucket }

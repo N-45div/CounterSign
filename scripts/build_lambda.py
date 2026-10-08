@@ -24,7 +24,7 @@ def main() -> int:
         shutil.rmtree(OUT)
     OUT.mkdir(parents=True)
     subprocess.run([
-        sys.executable, "-m", "pip", "install", "--quiet",
+        sys.executable, "-m", "pip", "install", "--quiet", "--no-cache-dir",
         "--target", str(OUT),
         "--implementation", "cp", "--python-version", "3.12",
         "--platform", "manylinux2014_aarch64", "--platform", "manylinux_2_28_aarch64",

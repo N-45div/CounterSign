@@ -48,9 +48,11 @@ def main() -> int:
     parser.add_argument("--device-id", default="")
     parser.add_argument("--witness-model", default="us.amazon.nova-lite-v1:0")
     parser.add_argument("--region", default="us-east-1")
+    parser.add_argument("--skip-build", action="store_true", help="reuse build/lambda from a previous build")
     args = parser.parse_args()
 
-    run(sys.executable, "scripts/build_lambda.py")
+    if not args.skip_build or not (ROOT / "build" / "lambda" / "handshake").exists():
+        run(sys.executable, "scripts/build_lambda.py")
     bucket = artifact_bucket(args.region)
     run("aws", "cloudformation", "package", "--region", args.region, "--template-file", "infra/template.yaml",
         "--s3-bucket", bucket, "--s3-prefix", STACK, "--output-template-file", "build/packaged.yaml")
