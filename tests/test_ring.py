@@ -117,3 +117,14 @@ def test_online_reads_the_status_attribute():
         "data": {"type": "device-status", "id": "x.status", "attributes": {"online": False}}
     }))
     assert client(s).online(DEV) is False
+
+
+def test_motion_events_drop_live_views_ring_returned_despite_the_filter():
+    # Seen live on the Ring Developer Playground (Oct 9 2026): a motion.vehicle query returned on_demand events.
+    path = f"/v1/history/devices/{DEV}/events"
+    s = FakeSession().on("GET", path, lambda c: response(200, {"data": [
+        event("live-view", 2000, 2500, kind="on_demand"),
+        event("van", 1000, 1500),
+    ]}))
+    events = client(s).motion_events(DEV, since_ms=0)
+    assert [e.id for e in events] == ["van"]

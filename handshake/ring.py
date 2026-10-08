@@ -164,10 +164,18 @@ class RingClient:
         return events
 
     def motion_events(self, device_id: str, since_ms: int, until_ms: int | None = None) -> list[HistoryEvent]:
-        """Motion events in [since_ms, until_ms], oldest first, tagged with every subtype they matched."""
+        """Motion events in [since_ms, until_ms], oldest first, tagged with every subtype they matched.
+
+        Ring does not always apply the filter: the Developer Playground answers a
+        motion.vehicle query with its live-view (on_demand) events too. Anything
+        that is not a motion event is dropped, so a live view never counts as a
+        person or a vehicle at the door.
+        """
         found: dict[str, HistoryEvent] = {}
         for subtype in MOTION_SUBTYPES:
             for event in self.history(device_id, [f"motion.{subtype}"], since_ms=since_ms):
+                if event.event_type != "motion":
+                    continue
                 if until_ms is not None and event.start_ms > until_ms:
                     continue
                 prior = found.get(event.id)
