@@ -27,7 +27,7 @@ def test_van_courier_walk_up_and_back_is_one_episode():
     assert [e.id for e in ep.visit] == ["walk-up", "walk-back"]
     assert ep.arrival.id == "van-in" and ep.departure.id == "van-out"
     assert ep.before_ms == T0 - SNAPSHOT_MARGIN_MS  # before the van, not just before the person
-    assert ep.after_ms == T0 + 110 * S + SNAPSHOT_MARGIN_MS
+    assert ep.after_ms == T0 + 130 * S + SNAPSHOT_MARGIN_MS  # after the van has gone, not just the courier
     assert ep.event_ids == ("walk-up", "walk-back", "van-in", "van-out")
     assert obs.other_activity == ()
 

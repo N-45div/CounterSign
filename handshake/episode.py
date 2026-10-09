@@ -140,10 +140,14 @@ def observe(claim: Claim, events: list[HistoryEvent]) -> Observation:
         prev_end = max(e.end_ms for e in visits[i - 1]) if i > 0 else None
         next_start = visits[i + 1][0].start_ms if i + 1 < len(visits) else None
 
+        # The after-frame waits for the courier's vehicle to leave too (up to a cap):
+        # a van marked "PARCELS" in the frame was read as a parcel at the door.
+        last_seen = min(max(end, departure.end_ms), end + VEHICLE_REACH_MS) if departure else end
+
         before = first_seen - SNAPSHOT_MARGIN_MS
         if prev_end is not None:
             before = max(before, prev_end + 1)
-        after = end + SNAPSHOT_MARGIN_MS
+        after = last_seen + SNAPSHOT_MARGIN_MS
         if next_start is not None:
             after = min(after, next_start - 1)
         episodes.append(Episode(tuple(visit), arrival, departure, before, max(after, end)))
