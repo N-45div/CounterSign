@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Handshake Doorstep Lab</title>
+  <link rel="stylesheet" href="style.css">
+  <script type="importmap">
+    { "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js" } }
+  </script>
+</head>
+<body>
+  <header class="bar">
+    <div class="brand"><span class="mark"></span>Handshake <span class="muted">Doorstep Lab</span></div>
+    <div class="note">Our own simulation of a Ring doorbell, served through a Ring-shaped API. The real Ring path runs against the Ring Developer Playground.</div>
+    <div class="witness" id="witness">witness: …</div>
+  </header>
+
+  <main class="layout">
+    <section class="stage">
+      <div class="viewport">
+        <canvas id="world"></canvas>
+        <figure class="doorbell">
+          <canvas id="doorbell" width="640" height="360"></canvas>
+          <figcaption>Doorbell camera <span id="rec" class="rec">REC</span></figcaption>
+        </figure>
+        <div class="clock" id="clock">t = 0 s</div>
+        <div class="offline" id="offline" hidden>Camera offline</div>
+      </div>
+      <div class="timeline">
+        <div class="track" id="track"><div class="cursor" id="cursor"></div></div>
+        <div class="legend"><span class="k vehicle"></span>vehicle <span class="k person"></span>person
+          <span class="k parcel"></span>parcel <span class="k off"></span>offline <span class="k claim"></span>courier taps delivered</div>
+      </div>
+      <div class="scenarios" id="scenarios"></div>
+      <div class="controls">
+        <label>Speed <select id="speed"><option>6</option><option selected>10</option><option>20</option></select>x</label>
+        <span class="muted" id="story"></span>
+      </div>
+    </section>
+
+    <aside class="console">
+      <ol class="steps">
+        <li id="step-ring"><h3>Ring events</h3><ul class="log" id="ring-log"><li class="muted">Pick a scenario to start.</li></ul></li>
+        <li id="step-claim"><h3>Courier app</h3><div id="claim" class="muted">Waiting for the tap.</div></li>
+        <li id="step-verdict"><h3>The house decides</h3>
+          <div id="verdict" class="verdict muted">No claim yet.</div>
+          <div class="evidence" id="evidence" hidden>
+            <figure><img id="ev-before" alt="before frame"><figcaption>before</figcaption></figure>
+            <figure><img id="ev-after" alt="after frame"><figcaption>after</figcaption></figure>
+          </div>
+        </li>
+        <li id="step-receipt"><h3>Signed receipt</h3>
+          <div id="receipt" class="muted">Nothing signed yet.</div>
+          <details id="payload-box" hidden><summary>Receipt contents</summary><pre id="payload"></pre></details>
+        </li>
+      </ol>
+    </aside>
+  </main>
+
+  <script type="module" src="lab.js"></script>
+</body>
+</html>
