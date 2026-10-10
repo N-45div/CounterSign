@@ -88,7 +88,7 @@ async function start(name) {
   ].sort((a, b) => a[0] - b[0]);
   run = { tl, end, claimAt, events, t0: performance.now(), ticks: tl.ticks.filter((t) => t <= end), next: 0,
           uploads: [], tapped: false, done: false };
-  log(`playing "${tl.title}" · device Lab Doorbell`);
+  log(`playing "${tl.title}" · session ${tl.session} · ${tl.webhooks_sent} webhooks sent`);
 }
 
 function frame(now) {
@@ -102,7 +102,7 @@ function frame(now) {
     const atMs = run.tl.start_ms + Math.round(tick * 1000);
     world.setTime(tick);
     const blob = world.capture(atMs);
-    run.uploads.push(blob.then((b) => fetch(`/lab/frames/${atMs}`, { method: "POST", body: b })));
+    run.uploads.push(blob.then((b) => fetch(`/lab/s/${run.tl.session}/frames/${atMs}`, { method: "POST", body: b })));
   }
   world.setTime(t);
   world.render();
@@ -130,16 +130,17 @@ async function finish(r) {
   log(`${results.length} frames uploaded to the Ring emulator${failed ? `, ${failed} refused` : ""}`);
   $("verdict").textContent = "Checking Ring history, frames and the witness…";
   const order = `LAB-${r.tl.scenario}-${Date.now().toString(36)}`;
-  let res = await fetch("/house/v1/claims", {
-    method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${config.merchant_key}` },
+  let res = await fetch(`/lab/s/${r.tl.session}/claim`, {
+    method: "POST", headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ order_id: order, claimed_at: r.tl.claim_at_ms, carrier: "Lab Courier" }) });
   let body = await res.json();
   while (res.status === 202) {
     await new Promise((ok) => setTimeout(ok, 1000 * Math.max(1, body.retry_after_s)));
-    res = await fetch(`/house/v1/claims/${body.claim_id}`, { headers: { Authorization: `Bearer ${config.merchant_key}` } });
+    res = await fetch(`/lab/s/${r.tl.session}/claims/${body.claim_id}`);
     body = await res.json();
   }
   showVerdict(body, r.tl);
+  $("witness").textContent = `witness: ${body.witness || config.witness}`;
   if (body.receipt) await showReceipt(body.receipt);
   lockButtons(null);
 }
@@ -152,8 +153,8 @@ function showVerdict(body, tl) {
   v.innerHTML = `<span class="big">${VERDICTS[body.verdict]}</span>${REASONS[body.reason] || body.reason}
     <div class="muted" style="margin-top:6px">reason: <code>${body.reason}</code> · ${match ? "<span class='check'>matches the scenario</span>" : "<span class='fail'>differs from the scenario's expected verdict</span>"}</div>`;
   if (body.receipt_id) {
-    $("ev-before").src = `/lab/evidence/${body.receipt_id}/before`;
-    $("ev-after").src = `/lab/evidence/${body.receipt_id}/after`;
+    $("ev-before").src = `/lab/s/${tl.session}/evidence/${body.receipt_id}/before`;
+    $("ev-after").src = `/lab/s/${tl.session}/evidence/${body.receipt_id}/after`;
     $("ev-before").onerror = $("ev-after").onerror = () => { $("evidence").hidden = true; };
     $("evidence").hidden = false;
   }
@@ -165,7 +166,7 @@ async function showReceipt(token) {
   const [h, p, sig] = token.split(".");
   const header = JSON.parse(new TextDecoder().decode(b64url(h)));
   const payload = JSON.parse(new TextDecoder().decode(b64url(p)));
-  const jwks = await (await fetch("/house/.well-known/jwks.json")).json();
+  const jwks = await (await fetch("/lab/jwks.json")).json();
   const jwk = jwks.keys.find((k) => k.kid === header.kid);
   let verdict;
   try {
