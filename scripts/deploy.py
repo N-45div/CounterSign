@@ -44,6 +44,7 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--house-secret", required=True)
     parser.add_argument("--ring-token-secret", required=True)
+    parser.add_argument("--lab-secret", required=True)
     parser.add_argument("--public-url", default="")
     parser.add_argument("--device-id", default="")
     parser.add_argument("--witness-model", default="us.amazon.nova-lite-v1:0")
@@ -60,7 +61,8 @@ def main() -> int:
         "--stack-name", STACK, "--capabilities", "CAPABILITY_IAM", "CAPABILITY_AUTO_EXPAND",
         "--no-fail-on-empty-changeset", "--parameter-overrides",
         f"HouseSecretArn={args.house_secret}", f"RingTokenSecretArn={args.ring_token_secret}",
-        f"PublicUrl={args.public_url}", f"DeviceId={args.device_id}", f"WitnessModel={args.witness_model}")
+        f"PublicUrl={args.public_url}", f"DeviceId={args.device_id}", f"WitnessModel={args.witness_model}",
+        f"LabSecretArn={args.lab_secret}")
 
     stack = boto3.client("cloudformation", region_name=args.region).describe_stacks(StackName=STACK)["Stacks"][0]
     outputs = {o["OutputKey"]: o["OutputValue"] for o in stack.get("Outputs", [])}

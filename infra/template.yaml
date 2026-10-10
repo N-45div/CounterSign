@@ -21,6 +21,13 @@ Parameters:
     Type: String
     Default: us.amazon.nova-lite-v1:0
     Description: Bedrock model or inference profile id for the witness
+  LabSecretArn:
+    Type: String
+    Description: Secrets Manager ARN of the Doorstep Lab secret (scripts/bootstrap_lab.py creates it)
+  LabDailyRuns:
+    Type: Number
+    Default: 300
+    Description: Lab runs Nova may judge per day before the lab falls back to ground truth
 
 Globals:
   Function:
@@ -73,6 +80,10 @@ Resources:
             Status: Enabled
             Prefix: frames/
             ExpirationInDays: 90
+          - Id: expire-lab-session-frames
+            Status: Enabled
+            Prefix: lab/
+            ExpirationInDays: 1
 
   FramesBucketPolicy:
     Type: AWS::S3::BucketPolicy
@@ -163,9 +174,47 @@ Resources:
             BatchSize: 1
             FunctionResponseTypes: [ReportBatchItemFailures]
 
+  LabFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Description: Handshake Doorstep Lab (3D page, Ring emulator, lab house), one session per visitor
+      Handler: handshake.lab.lambda_lab.handler
+      CodeUri: ../build/lambda  # per function: `aws cloudformation package` ignores Globals
+      Environment:
+        Variables:
+          HANDSHAKE_LAB_SECRET: !Ref LabSecretArn
+          HANDSHAKE_LAB_DAILY_RUNS: !Ref LabDailyRuns
+      FunctionUrlConfig:
+        AuthType: NONE
+      Policies:
+        - DynamoDBCrudPolicy: { TableName: !Ref Table }
+        - S3CrudPolicy: { BucketName: !Ref FramesBucket }
+        - Statement:
+            - Effect: Allow
+              Action: secretsmanager:GetSecretValue
+              Resource: !Ref LabSecretArn
+            - Effect: Allow
+              Action: bedrock:InvokeModel
+              Resource:
+                - !Sub "arn:${AWS::Partition}:bedrock:*::foundation-model/amazon.nova-*"
+                - !Sub "arn:${AWS::Partition}:bedrock:${AWS::Region}:${AWS::AccountId}:inference-profile/us.amazon.nova-*"
+            - Effect: Allow
+              Action: textract:DetectDocumentText
+              Resource: "*"
+
+  LabPublicInvoke:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref LabFunction
+      Action: lambda:InvokeFunction
+      Principal: "*"
+      InvokedViaFunctionUrl: true
+
 Outputs:
   ApiUrl:
     Value: !GetAtt ApiFunctionUrl.FunctionUrl
+  LabUrl:
+    Value: !GetAtt LabFunctionUrl.FunctionUrl
   TableName:
     Value: !Ref Table
   FramesBucketName:
