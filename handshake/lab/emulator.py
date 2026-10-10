@@ -22,7 +22,7 @@ import json
 import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Callable
+from typing import Callable, MutableMapping
 
 import requests
 from fastapi import FastAPI, Header, Request
@@ -51,7 +51,7 @@ class LabWorld:
     device: LabDevice = field(default_factory=LabDevice)
     clock_ms: Callable[[], int] = lambda: int(time.time() * 1000)
     scenes_by_hash: dict[str, Scene] = field(default_factory=dict)  # lets tests know what a frame showed
-    uploaded: dict[int, bytes] = field(default_factory=dict)  # frames the 3D lab rendered, by timestamp
+    uploaded: MutableMapping[int, bytes] = field(default_factory=dict)  # frames the 3D lab rendered (memory or S3)
 
     def at(self, seconds: float) -> int:
         return self.start_ms + int(seconds * 1000)
@@ -177,7 +177,7 @@ def send_status_webhooks(world: LabWorld, url: str, signing_key: str, post=reque
     for at_ms, online in world.status_changes():
         kind = "device_online" if online else "device_offline"
         body = json.dumps({
-            "meta": {"version": "1.1", "time": _iso(at_ms), "request_id": f"lab-{kind}-{at_ms}",
+            "meta": {"version": "1.1", "time": _iso(at_ms), "request_id": f"lab-{world.device.id}-{kind}-{at_ms}",
                      "account_id": world.device.account_id},
             "data": {"id": f"{world.device.id}_{kind}_{at_ms}", "type": kind,
                      "attributes": {"source": world.device.id, "source_type": "devices", "timestamp": at_ms}},
@@ -188,20 +188,126 @@ def send_status_webhooks(world: LabWorld, url: str, signing_key: str, post=reque
     return sent
 
 
+def ring_api(resolve: Callable[[str], "LabWorld | None"], app: FastAPI | None = None) -> FastAPI:
+    """The Ring Partner API surface. `resolve` maps a bearer token to the world it may see,
+    the way a Ring user's token only ever sees that user's devices."""
+    app = app or FastAPI(title="Handshake Lab: Ring Partner API emulator")
+
+    def token_of(authorization: str | None) -> str:
+        auth = authorization or ""
+        return auth[7:].strip() if auth.lower().startswith("bearer ") else ""
+
+    def world_or_401(authorization: str | None):
+        token = token_of(authorization)
+        world = resolve(token) if token else None
+        if world is None:
+            return None, token, Response(status_code=401)  # Ring answers a bad token with an empty body
+        return world, token, None
+
+    def device_or_error(device_id: str, authorization: str | None):
+        world, token, denied = world_or_401(authorization)
+        if denied is not None:
+            return None, token, denied
+        if device_id != world.device.id:
+            return None, token, _err(404, "NOT_FOUND", f"device {device_id} not found")
+        return world, token, None
+
+    @app.get("/v1/users/me")
+    def me(authorization: str | None = Header(default=None)):
+        world, _, denied = world_or_401(authorization)
+        if denied is not None:
+            return denied
+        return {"data": {"type": "users", "id": world.device.account_id}}
+
+    @app.get("/v1/devices")
+    def devices(authorization: str | None = Header(default=None)):
+        world, _, denied = world_or_401(authorization)
+        if denied is not None:
+            return denied
+        dev = world.device
+        return {"data": [{"type": "devices", "id": dev.id, "attributes": {"name": dev.name},
+                          "relationships": {"location": {"data": {"type": "locations", "id": dev.location_id}}}}],
+                "included": [{"type": "locations", "id": dev.location_id,
+                              "attributes": {"state": "KA", "country": "IN"}}]}
+
+    @app.get("/v1/devices/{device_id}/status")
+    def status(device_id: str, authorization: str | None = Header(default=None)):
+        world, _, err = device_or_error(device_id, authorization)
+        if err is not None:
+            return err
+        return {"meta": {"time": _iso(world.clock_ms())},
+                "data": {"type": "device-status", "id": f"{device_id}.status", "attributes": {"online": world.online()}}}
+
+    @app.get("/v1/history/devices/{device_id}/events")
+    def history(device_id: str, request: Request, authorization: str | None = Header(default=None)):
+        world, _, err = device_or_error(device_id, authorization)
+        if err is not None:
+            return err
+        wanted = [t.strip() for t in (request.query_params.get("event_types") or "").split(",") if t.strip()]
+        events = world.events()
+        if wanted:
+            events = [e for e in events if "motion" in wanted or f"motion.{e['subtype']}" in wanted]
+        events.sort(key=lambda e: e["start"], reverse=True)
+        key = request.query_params.get("page[key]")
+        if key:
+            cutoff = int(datetime.strptime(key, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc).timestamp() * 1000)
+            events = [e for e in events if e["start"] < cutoff]
+        page_size = PAGE_SIZE
+        page, rest = events[:page_size], events[page_size:]
+        body = {"data": [{
+            "type": "history-events", "id": e["id"],
+            "attributes": {"event_type": "motion", "start": e["start"], "end": e["end"], "is_third_party_reviewed": False},
+            "relationships": {"source": {"data": {"type": "devices", "id": device_id}}, "cv_detections": {"data": []}},
+        } for e in page]}
+        if rest:
+            query = f"page[key]={_iso(page[-1]['start'])}" + (f"&event_types={','.join(wanted)}" if wanted else "")
+            body["links"] = {"next": f"/v1/history/devices/{device_id}/events?{query}"}
+        return body
+
+    @app.post("/v1/devices/{device_id}/media/{kind}/download")
+    async def download(device_id: str, kind: str, request: Request, authorization: str | None = Header(default=None)):
+        world, token, err = device_or_error(device_id, authorization)
+        if err is not None:
+            return err
+        payload = await request.json()
+        # Like the real API: a 303 to a media URL that needs no token, which serves the file or a 416.
+        base = str(request.base_url).rstrip("/")
+        key = _media_key({"kind": kind, "tok": token, **payload})
+        return Response(status_code=303, headers={"Location": f"{base}/lab/media/{key}"})
+
+    @app.api_route("/lab/media/{key}", methods=["GET", "POST"])
+    def media(key: str):
+        try:
+            req = _from_key(key)
+        except (ValueError, json.JSONDecodeError):
+            return _err(404, "NOT_FOUND", "unknown media")
+        world = resolve(req.get("tok", ""))
+        if world is None or req.get("kind") != "image":
+            return _err(416, "MEDIA_NOT_FOUND", "The lab records snapshots only")
+        if req.get("type") == "at_timestamp":
+            found = world.frame_near(int(req["timestamp"]))
+        else:
+            found = world.latest_frame(int(req["start_timestamp"]), int(req["end_timestamp"]))
+        if found is None:
+            return _err(416, "MEDIA_NOT_FOUND", "No media found in time range")
+        at_ms, image = found
+        return Response(content=image, media_type="image/jpeg", headers={"X-Media-Timestamp": str(at_ms)})
+
+    return app
+
+
+def check_frame(image: bytes) -> JSONResponse | None:
+    """Why an uploaded frame is refused, if it is."""
+    if len(image) > MAX_UPLOAD_BYTES:
+        return _err(413, "TOO_LARGE", "frames are at most 1.5 MB")
+    if not (image.startswith(b"\xff\xd8") or image.startswith(b"\x89PNG")):
+        return _err(415, "NOT_AN_IMAGE", "send a JPEG or PNG")
+    return None
+
+
 def create_emulator(state: LabState, tokens: set[str] | None = None) -> FastAPI:
+    """One world at a time, for tests and scripts: the Ring API plus controls to play scenarios."""
     app = FastAPI(title="Handshake Lab: Ring Partner API emulator")
-
-    def denied(authorization: str | None) -> Response | None:
-        token = (authorization or "")[7:].strip() if (authorization or "").lower().startswith("bearer ") else ""
-        if not token or (tokens is not None and token not in tokens):
-            return Response(status_code=401)  # Ring answers a bad token with an empty body
-        return None
-
-    def device_or_404(device_id: str):
-        world = state.world
-        if world is None or device_id != world.device.id:
-            return None, _err(404, "NOT_FOUND", f"device {device_id} not found")
-        return world, None
 
     @app.get("/lab/scenarios")
     def scenarios():
@@ -228,100 +334,12 @@ def create_emulator(state: LabState, tokens: set[str] | None = None) -> FastAPI:
         if world is None:
             return _err(404, "NOT_PLAYING", "play a scenario first")
         image = await request.body()
-        if len(image) > MAX_UPLOAD_BYTES:
-            return _err(413, "TOO_LARGE", "frames are at most 1.5 MB")
-        if not (image.startswith(b"\xff\xd8") or image.startswith(b"\x89PNG")):
-            return _err(415, "NOT_AN_IMAGE", "send a JPEG or PNG")
+        if (refused := check_frame(image)) is not None:
+            return refused
         try:
             world.upload(at_ms, image)
         except ValueError as exc:
             return _err(400, "NOT_A_TICK", str(exc))
         return Response(status_code=204)
 
-    @app.get("/v1/users/me")
-    def me(authorization: str | None = Header(default=None)):
-        if (r := denied(authorization)) is not None:
-            return r
-        account = state.world.device.account_id if state.world else LabDevice().account_id
-        return {"data": {"type": "users", "id": account}}
-
-    @app.get("/v1/devices")
-    def devices(authorization: str | None = Header(default=None)):
-        if (r := denied(authorization)) is not None:
-            return r
-        if state.world is None:
-            return {"data": []}
-        dev = state.world.device
-        return {"data": [{"type": "devices", "id": dev.id, "attributes": {"name": dev.name},
-                          "relationships": {"location": {"data": {"type": "locations", "id": dev.location_id}}}}],
-                "included": [{"type": "locations", "id": dev.location_id,
-                              "attributes": {"state": "KA", "country": "IN"}}]}
-
-    @app.get("/v1/devices/{device_id}/status")
-    def status(device_id: str, authorization: str | None = Header(default=None)):
-        if (r := denied(authorization)) is not None:
-            return r
-        world, err = device_or_404(device_id)
-        if err:
-            return err
-        return {"meta": {"time": _iso(state.clock_ms())},
-                "data": {"type": "device-status", "id": f"{device_id}.status", "attributes": {"online": world.online()}}}
-
-    @app.get("/v1/history/devices/{device_id}/events")
-    def history(device_id: str, request: Request, authorization: str | None = Header(default=None)):
-        if (r := denied(authorization)) is not None:
-            return r
-        world, err = device_or_404(device_id)
-        if err:
-            return err
-        wanted = [t.strip() for t in (request.query_params.get("event_types") or "").split(",") if t.strip()]
-        events = world.events()
-        if wanted:
-            events = [e for e in events if "motion" in wanted or f"motion.{e['subtype']}" in wanted]
-        events.sort(key=lambda e: e["start"], reverse=True)
-        key = request.query_params.get("page[key]")
-        if key:
-            cutoff = int(datetime.strptime(key, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc).timestamp() * 1000)
-            events = [e for e in events if e["start"] < cutoff]
-        page, rest = events[:PAGE_SIZE], events[PAGE_SIZE:]
-        body = {"data": [{
-            "type": "history-events", "id": e["id"],
-            "attributes": {"event_type": "motion", "start": e["start"], "end": e["end"], "is_third_party_reviewed": False},
-            "relationships": {"source": {"data": {"type": "devices", "id": device_id}}, "cv_detections": {"data": []}},
-        } for e in page]}
-        if rest:
-            query = f"page[key]={_iso(page[-1]['start'])}" + (f"&event_types={','.join(wanted)}" if wanted else "")
-            body["links"] = {"next": f"/v1/history/devices/{device_id}/events?{query}"}
-        return body
-
-    @app.post("/v1/devices/{device_id}/media/{kind}/download")
-    async def download(device_id: str, kind: str, request: Request, authorization: str | None = Header(default=None)):
-        if (r := denied(authorization)) is not None:
-            return r
-        world, err = device_or_404(device_id)
-        if err:
-            return err
-        payload = await request.json()
-        # Like the real API: a 303 to the media URL, which then serves the file or a 416.
-        base = str(request.base_url).rstrip("/")
-        return Response(status_code=303, headers={"Location": f"{base}/lab/media/{_media_key({'kind': kind, **payload})}"})
-
-    @app.api_route("/lab/media/{key}", methods=["GET", "POST"])
-    def media(key: str):
-        world = state.world
-        try:
-            req = _from_key(key)
-        except (ValueError, json.JSONDecodeError):
-            return _err(404, "NOT_FOUND", "unknown media")
-        if world is None or req.get("kind") != "image":
-            return _err(416, "MEDIA_NOT_FOUND", "The lab records snapshots only")
-        if req.get("type") == "at_timestamp":
-            found = world.frame_near(int(req["timestamp"]))
-        else:
-            found = world.latest_frame(int(req["start_timestamp"]), int(req["end_timestamp"]))
-        if found is None:
-            return _err(416, "MEDIA_NOT_FOUND", "No media found in time range")
-        at_ms, image = found
-        return Response(content=image, media_type="image/jpeg", headers={"X-Media-Timestamp": str(at_ms)})
-
-    return app
+    return ring_api(lambda token: state.world if (tokens is None or token in tokens) else None, app)
