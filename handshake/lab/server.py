@@ -106,7 +106,7 @@ def create_lab(
 
     @app.get("/lab/config")
     def config():
-        return {"witness": "us.amazon.nova (Bedrock) + Textract" if nova else "lab-truth",
+        return {"witness": "Amazon Nova on Bedrock + Amazon Textract" if nova else "lab-truth",
                 "scenarios": list(SCENARIOS)}
 
     @app.get("/lab/scenarios")

@@ -1,0 +1,53 @@
+"""AWS Lambda entry point for the hosted Doorstep Lab (behind a Function URL).
+
+Sessions and the daily Nova budget live in the house's DynamoDB table, lab
+frames and evidence in its S3 bucket, and the lab house's signing key in
+Secrets Manager. The house reaches the Ring emulator through the same
+Function URL the visitor used, with the session's token.
+
+    HANDSHAKE_TABLE, HANDSHAKE_BUCKET   shared with the house stack
+    HANDSHAKE_LAB_SECRET                JSON: signing_key_pem, webhook_key
+    HANDSHAKE_WITNESS_MODEL             optional Bedrock model id
+    HANDSHAKE_LAB_DAILY_RUNS            Nova-judged runs per day before falling back to ground truth
+"""
+
+from __future__ import annotations
+
+import json
+import os
+from functools import lru_cache
+
+import boto3
+from mangum import Mangum
+
+from ..aws_store import DynamoStore
+from ..doorman import TextractOcr
+from ..receipt import HouseKey
+from ..witness import DEFAULT_MODEL, NovaWitness
+from .server import create_lab
+from .sessions import DynamoSessions
+
+
+@lru_cache(maxsize=1)
+def _app() -> Mangum:
+    env = os.environ
+    aws = boto3.Session()
+    secret = json.loads(aws.client("secretsmanager").get_secret_value(SecretId=env["HANDSHAKE_LAB_SECRET"])["SecretString"])
+    table = aws.resource("dynamodb").Table(env["HANDSHAKE_TABLE"])
+    s3 = aws.client("s3")
+    bucket = env["HANDSHAKE_BUCKET"]
+    runtime, textract = aws.client("bedrock-runtime"), aws.client("textract")
+    model = env.get("HANDSHAKE_WITNESS_MODEL") or DEFAULT_MODEL
+    app = create_lab(
+        sessions=DynamoSessions(table, s3, bucket, int(env.get("HANDSHAKE_LAB_DAILY_RUNS", "300"))),
+        house_store=DynamoStore(table, s3, bucket),
+        key=HouseKey.from_pem(secret["signing_key_pem"].encode()),
+        webhook_key=secret["webhook_key"],
+        nova=lambda: NovaWitness(runtime, model, TextractOcr(textract)),
+        base_url=None,  # the URL the visitor came in on
+    )
+    return Mangum(app, lifespan="off")
+
+
+def handler(event, context):
+    return _app()(event, context)
