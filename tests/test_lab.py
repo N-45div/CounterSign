@@ -124,3 +124,34 @@ def test_every_scenario_reaches_its_expected_verdict(lab, name):
     assert payload["verdict"] == world.scenario.expected[0]
     if payload["evidence"]:
         assert len(store.get_frames(record.receipt_id)) == 2
+
+
+def test_timeline_matches_what_the_camera_records(lab):
+    state, url = lab
+    world = state.play("honest_delivery")
+    import requests
+    timeline = requests.get(f"{url}/lab/timeline", timeout=10).json()
+    assert timeline["claim_at_ms"] == world.at(150) and timeline["expected"]["verdict"] == "delivered"
+    assert timeline["spans"]["parcels"] == [[112, None]]  # open-ended spans come back as null
+    assert [world.at(t) for t in timeline["ticks"]] == world.frame_times()
+
+
+def test_an_uploaded_3d_frame_is_the_snapshot_ring_serves(lab):
+    state, url = lab
+    world = state.play("honest_delivery")
+    import requests
+    tick = world.at(90)
+    fake_render = b"\xff\xd8\xff\xe0" + b"3d-frame" * 10
+    assert requests.post(f"{url}/lab/frames/{tick}", data=fake_render, timeout=10).status_code == 204
+    assert ring(url).snapshot_at(world.device.id, tick).content == fake_render
+
+
+def test_uploads_are_checked(lab):
+    state, url = lab
+    world = state.play("honest_delivery")
+    import requests
+    not_a_tick = world.at(30) + 500  # no motion and no snapshot at this moment
+    assert requests.post(f"{url}/lab/frames/{not_a_tick}", data=b"\xff\xd8x", timeout=10).status_code == 400
+    assert requests.post(f"{url}/lab/frames/{world.at(90)}", data=b"<svg/>", timeout=10).status_code == 415
+    big = b"\xff\xd8" + b"0" * 1_600_000
+    assert requests.post(f"{url}/lab/frames/{world.at(90)}", data=big, timeout=10).status_code == 413

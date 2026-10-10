@@ -33,6 +33,7 @@ from .scenarios import SCENARIOS, Scenario, Scene
 
 FRAME_TOLERANCE_MS = 2_000
 PAGE_SIZE = 10
+MAX_UPLOAD_BYTES = 1_500_000
 
 
 @dataclass(frozen=True)
@@ -50,6 +51,7 @@ class LabWorld:
     device: LabDevice = field(default_factory=LabDevice)
     clock_ms: Callable[[], int] = lambda: int(time.time() * 1000)
     scenes_by_hash: dict[str, Scene] = field(default_factory=dict)  # lets tests know what a frame showed
+    uploaded: dict[int, bytes] = field(default_factory=dict)  # frames the 3D lab rendered, by timestamp
 
     def at(self, seconds: float) -> int:
         return self.start_ms + int(seconds * 1000)
@@ -73,6 +75,9 @@ class LabWorld:
                         "start": start, "end": min(self.at(e), now)})
         return out
 
+    def frame_times(self) -> list[int]:
+        return self._frame_times()
+
     def _frame_times(self) -> list[int]:
         now = self.clock_ms()
         ticks = set()
@@ -86,10 +91,34 @@ class LabWorld:
         return sorted(ms for ms in ticks if ms <= now and not self.scenario.scene_at(self.seconds(ms)).offline)
 
     def frame(self, at_ms: int) -> tuple[int, bytes]:
+        """The 3D lab's frame for this moment if it uploaded one, else a drawn one."""
         scene = self.scenario.scene_at(self.seconds(at_ms))
-        image = render(scene, at_ms, self.device.name)
+        image = self.uploaded.get(at_ms) or render(scene, at_ms, self.device.name)
         self.scenes_by_hash[hashlib.sha256(image).hexdigest()] = scene
         return at_ms, image
+
+    def upload(self, at_ms: int, image: bytes) -> None:
+        if at_ms not in set(self._frame_times()):
+            raise ValueError("not a moment this camera records")
+        self.uploaded[at_ms] = image
+
+    def timeline(self) -> dict:
+        """Everything the 3D lab needs to animate the scenario and render the right frames."""
+        sc = self.scenario
+        finite = lambda x: None if x == float("inf") else x  # noqa: E731
+        return {
+            "scenario": sc.name, "title": sc.title, "story": sc.story,
+            "expected": {"verdict": sc.expected[0], "reason": sc.expected[1]},
+            "start_ms": self.start_ms, "claim_at_ms": self.at(sc.claim_at_s), "duration_s": sc.duration_s,
+            "spans": {
+                "vehicles": [[s, finite(e)] for s, e in sc.vehicles],
+                "people": [[s, finite(e)] for s, e in sc.people],
+                "parcels": [[s, finite(e)] for s, e in sc.parcels],
+                "notes": [[s, finite(e), list(lines)] for s, e, lines in sc.notes],
+                "offline": [[s, finite(e)] for s, e in sc.offline],
+            },
+            "ticks": [round(self.seconds(ms), 3) for ms in self._frame_times()],
+        }
 
     def frame_near(self, at_ms: int) -> tuple[int, bytes] | None:
         times = [ms for ms in self._frame_times() if abs(ms - at_ms) <= FRAME_TOLERANCE_MS]
@@ -186,6 +215,28 @@ def create_emulator(state: LabState, tokens: set[str] | None = None) -> FastAPI:
         world = state.play(body["scenario"], body.get("start_ms"))
         return {"scenario": world.scenario.name, "device_id": world.device.id, "start_ms": world.start_ms,
                 "claim_at_ms": world.at(world.scenario.claim_at_s)}
+
+    @app.get("/lab/timeline")
+    def timeline():
+        if state.world is None:
+            return _err(404, "NOT_PLAYING", "play a scenario first")
+        return state.world.timeline()
+
+    @app.post("/lab/frames/{at_ms}")
+    async def upload_frame(at_ms: int, request: Request):
+        world = state.world
+        if world is None:
+            return _err(404, "NOT_PLAYING", "play a scenario first")
+        image = await request.body()
+        if len(image) > MAX_UPLOAD_BYTES:
+            return _err(413, "TOO_LARGE", "frames are at most 1.5 MB")
+        if not (image.startswith(b"\xff\xd8") or image.startswith(b"\x89PNG")):
+            return _err(415, "NOT_AN_IMAGE", "send a JPEG or PNG")
+        try:
+            world.upload(at_ms, image)
+        except ValueError as exc:
+            return _err(400, "NOT_A_TICK", str(exc))
+        return Response(status_code=204)
 
     @app.get("/v1/users/me")
     def me(authorization: str | None = Header(default=None)):
