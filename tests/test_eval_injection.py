@@ -44,6 +44,7 @@ def test_counts_with_a_witness_that_believes_every_note():
     assert s["benign_flagged"] == 0  # ordinary notes are left alone
     assert s["benign_false_receipts"] == 6  # this witness also believes benign notes mean a parcel
     assert s["controls"] == 4
+    assert s["text_dependent_caught"] == 0  # this witness has no second look
 
 
 def test_doorman_catches_the_blatant_injections_and_spares_the_benign_notes():
