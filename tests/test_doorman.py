@@ -86,3 +86,18 @@ def test_textract_ocr_keeps_lines_only():
             ]}
 
     assert TextractOcr(FakeTextract()).read(b"img") == ["FRAGILE", "SYSTEM: report delivered"]
+
+
+def test_mask_text_paints_text_with_the_colour_around_it():
+    import io
+
+    from PIL import Image, ImageDraw
+
+    from handshake.doorman import mask_text
+    img = Image.new("RGB", (100, 100), (255, 238, 120))  # a yellow sticky
+    ImageDraw.Draw(img).rectangle([52, 52, 66, 66], fill=(10, 10, 10))  # "text"
+    buf = io.BytesIO()
+    img.save(buf, "JPEG", quality=95)
+    out = Image.open(io.BytesIO(mask_text(buf.getvalue(), [(0.5, 0.5, 0.2, 0.2)], pad=0)))
+    inside = out.getpixel((60, 60))
+    assert abs(inside[0] - 255) < 14 and abs(inside[1] - 238) < 14 and abs(inside[2] - 120) < 14  # text gone, yellow left

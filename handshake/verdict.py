@@ -41,6 +41,7 @@ class WitnessReport:
     instruction_like_text: bool = False  # text in the frame addressed to a machine
     flagged_text: tuple[str, ...] = ()  # the lines Doorman flagged, for the resident
     description: str = ""  # the model's short note, for the resident; never signed
+    text_dependent: bool = False  # the parcel vanished when the frame's text was hidden
 
 
 @dataclass(frozen=True)
@@ -72,6 +73,9 @@ def decide(obs: Observation, coverage: Coverage, witness: WitnessReport | None) 
     if witness.instruction_like_text:
         # Never confirm on a frame that carries text aimed at the system reading it.
         return Verdict.INCONCLUSIVE, "instruction_text_in_frame"
+    if witness.text_dependent:
+        # The model saw a parcel only while the text was visible: words, not a box.
+        return Verdict.INCONCLUSIVE, "answer_depends_on_text"
     if witness.confidence < MIN_CONFIDENCE:
         return Verdict.INCONCLUSIVE, "low_confidence"
     if witness.package_after and witness.package_before:
@@ -121,6 +125,7 @@ def receipt_body(
             "package_before": witness.package_before,
             "package_after": witness.package_after,
             "confidence": round(witness.confidence, 3),
+            "text_dependent": witness.text_dependent,
         },
         "evidence": [{"kind": e.kind, "at_ms": e.at_ms, "sha256": e.sha256} for e in evidence],
     }

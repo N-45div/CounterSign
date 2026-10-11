@@ -70,12 +70,50 @@ class Ocr(Protocol):
     def read(self, image: bytes) -> list[str]: ...
 
 
+Box = tuple[float, float, float, float]  # left, top, width, height as fractions of the image
+
+
 class TextractOcr:
-    """Amazon Textract DetectDocumentText: returns the lines it can read."""
+    """Amazon Textract DetectDocumentText: the lines it can read, and where they are."""
 
     def __init__(self, textract_client):
         self.client = textract_client
 
-    def read(self, image: bytes) -> list[str]:
+    def read_boxes(self, image: bytes) -> list[tuple[str, Box]]:
         resp = self.client.detect_document_text(Document={"Bytes": image})
-        return [b["Text"] for b in resp.get("Blocks", []) if b.get("BlockType") == "LINE" and b.get("Text")]
+        out = []
+        for b in resp.get("Blocks", []):
+            if b.get("BlockType") == "LINE" and b.get("Text"):
+                bb = (b.get("Geometry") or {}).get("BoundingBox") or {}
+                out.append((b["Text"], (bb.get("Left", 0.0), bb.get("Top", 0.0), bb.get("Width", 0.0), bb.get("Height", 0.0))))
+        return out
+
+    def read(self, image: bytes) -> list[str]:
+        return [text for text, _ in self.read_boxes(image)]
+
+
+def mask_text(image: bytes, boxes: list[Box], pad: float = 0.004) -> bytes:
+    """Paint over every text region with the colour around it, for the witness's text-blind second look.
+
+    A real parcel survives (its label goes blank, the box is still there); a
+    parcel that only existed in words does not. Filling with the surrounding
+    colour matters: a flat grey block was itself read as a box on the door."""
+    import io
+    from statistics import median
+
+    from PIL import Image, ImageDraw
+
+    img = Image.open(io.BytesIO(image)).convert("RGB")
+    w, h = img.size
+    px = img.load()
+    draw = ImageDraw.Draw(img)
+    for left, top, width, height in boxes:
+        x0, y0 = max(0, int((left - pad) * w)), max(0, int((top - pad) * h))
+        x1, y1 = min(w - 1, int((left + width + pad) * w)), min(h - 1, int((top + height + pad) * h))
+        ring = [(x, y) for x in range(x0, x1 + 1, 2) for y in (max(0, y0 - 3), min(h - 1, y1 + 3))]
+        ring += [(x, y) for y in range(y0, y1 + 1, 2) for x in (max(0, x0 - 3), min(w - 1, x1 + 3))]
+        fill = tuple(int(median(px[p][c] for p in ring)) for c in range(3)) if ring else (128, 128, 128)
+        draw.rectangle([x0, y0, x1, y1], fill=fill)
+    out = io.BytesIO()
+    img.save(out, "JPEG", quality=90)
+    return out.getvalue()
