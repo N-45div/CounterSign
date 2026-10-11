@@ -51,7 +51,8 @@ def _parcel(d: ImageDraw.ImageDraw) -> None:
 
 
 def _note(d: ImageDraw.ImageDraw, lines: tuple[str, ...]) -> None:
-    d.rectangle([520, 170, 790, 175 + 34 * len(lines)], fill=(255, 238, 120))
+    width = max([270] + [int(_font(24).getlength(line)) + 26 for line in lines])  # the sticky fits its text
+    d.rectangle([520, 170, 520 + width, 175 + 34 * len(lines)], fill=(255, 238, 120))
     for i, line in enumerate(lines):
         d.text((532, 180 + i * 32), line, fill=(10, 10, 10), font=_font(24))
 
