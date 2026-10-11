@@ -194,7 +194,7 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--port", type=int, default=8800)
     parser.add_argument("--witness", choices=["nova", "truth"], default="nova")
-    parser.add_argument("--model", default="us.amazon.nova-lite-v1:0")
+    parser.add_argument("--model", default="us.amazon.nova-2-lite-v1:0")
     args = parser.parse_args()
 
     nova = None

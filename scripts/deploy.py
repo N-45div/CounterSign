@@ -47,7 +47,7 @@ def main() -> int:
     parser.add_argument("--lab-secret", required=True)
     parser.add_argument("--public-url", default="")
     parser.add_argument("--device-id", default="")
-    parser.add_argument("--witness-model", default="us.amazon.nova-lite-v1:0")
+    parser.add_argument("--witness-model", default="us.amazon.nova-2-lite-v1:0")
     parser.add_argument("--region", default="us-east-1")
     parser.add_argument("--skip-build", action="store_true", help="reuse build/lambda from a previous build")
     args = parser.parse_args()

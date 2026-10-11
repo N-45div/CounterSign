@@ -19,7 +19,7 @@ Parameters:
     Description: Ring device id of the camera facing the drop point. Empty means the first device.
   WitnessModel:
     Type: String
-    Default: us.amazon.nova-lite-v1:0
+    Default: us.amazon.nova-2-lite-v1:0
     Description: Bedrock model or inference profile id for the witness
   LabSecretArn:
     Type: String
