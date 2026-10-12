@@ -31,6 +31,7 @@ class MemoryStore:
     # device id -> [(at_ms, online)] in arrival order
     status_log: dict[str, list[tuple[int, bool]]] = field(default_factory=dict)
     claims: dict[str, object] = field(default_factory=dict)
+    questions: dict[str, object] = field(default_factory=dict)
     seen_webhooks: set[str] = field(default_factory=set)
 
     # -- claims --------------------------------------------------------------
@@ -40,6 +41,20 @@ class MemoryStore:
 
     def get_claim(self, claim_id: str):
         return self.claims.get(claim_id)
+
+    # -- resident questions ---------------------------------------------------
+
+    def put_question(self, question) -> None:
+        self.questions[question.question_id] = question
+
+    def get_question(self, question_id: str):
+        return self.questions.get(question_id)
+
+    def question_for_claim(self, claim_id: str):
+        return next((q for q in self.questions.values() if q.claim_id == claim_id), None)
+
+    def open_questions(self) -> list:
+        return sorted((q for q in self.questions.values() if q.status == "open"), key=lambda q: q.asked_at_ms)
 
     def first_sighting(self, request_id: str) -> bool:
         """True the first time a webhook request id is seen (Ring retries deliveries)."""

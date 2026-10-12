@@ -8,6 +8,9 @@ One table, keyed by `pk` and `sk`:
     RECENT                             <issued_at>#<id>      receipts, newest first
     DEVICE#<device_id>                 STATUS#<at_ms>        online history
     WEBHOOK#<request_id>               SEEN                  webhook dedupe (TTL)
+    QUESTION#<question_id>             QUESTION              a question for the resident
+    CLAIMQ#<claim_id>                  QUESTION              the claim's question id
+    OPENQ                              <asked_at>#<id>       open questions, oldest first
 
 Frames go to s3://<bucket>/frames/<receipt_id>/<name>, encrypted at rest.
 The bucket is private; frames never leave the house's account.
@@ -23,6 +26,7 @@ from boto3.dynamodb.conditions import Key
 from botocore.exceptions import ClientError
 
 from .desk import ClaimRecord, ClaimStatus
+from .disputes import Question
 from .episode import Window
 from .store import StoredReceipt, coverage_from_log
 from .verdict import Coverage
@@ -113,6 +117,30 @@ class DynamoStore:
         ).get("Items", [])
         log = [(int(item["sk"].split("#", 1)[1]), bool(item["online"])) for item in before + inside]
         return coverage_from_log(log, window, online_now)
+
+    # -- resident questions ---------------------------------------------------
+
+    def put_question(self, q: Question) -> None:
+        with self.table.batch_writer() as batch:
+            batch.put_item(Item={"pk": f"QUESTION#{q.question_id}", "sk": "QUESTION", "data": json.dumps(asdict(q))})
+            batch.put_item(Item={"pk": f"CLAIMQ#{q.claim_id}", "sk": "QUESTION", "question_id": q.question_id})
+        open_key = {"pk": "OPENQ", "sk": f"{_ts(q.asked_at_ms)}#{q.question_id}"}
+        if q.status == "open":
+            self.table.put_item(Item={**open_key, "question_id": q.question_id})
+        else:
+            self.table.delete_item(Key=open_key)
+
+    def get_question(self, question_id: str) -> Question | None:
+        item = self.table.get_item(Key={"pk": f"QUESTION#{question_id}", "sk": "QUESTION"}).get("Item")
+        return Question(**json.loads(item["data"])) if item else None
+
+    def question_for_claim(self, claim_id: str) -> Question | None:
+        item = self.table.get_item(Key={"pk": f"CLAIMQ#{claim_id}", "sk": "QUESTION"}).get("Item")
+        return self.get_question(item["question_id"]) if item else None
+
+    def open_questions(self) -> list[Question]:
+        items = self.table.query(KeyConditionExpression=Key("pk").eq("OPENQ")).get("Items", [])
+        return [q for q in (self.get_question(i["question_id"]) for i in items) if q is not None]
 
     # -- webhook dedupe ------------------------------------------------------
 
