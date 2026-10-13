@@ -116,3 +116,13 @@ def test_exchange_carries_only_the_question_and_reply():
     q = d.open(claim(), "Did it arrive?")
     d.answer(q.question_id, "yes")
     assert set(exchange_for(d.store.get_question(q.question_id))) == {"question", "reply", "merchant", "order_id"}
+
+
+def test_the_house_side_loads_without_strands(monkeypatch):
+    import importlib
+    import sys
+
+    monkeypatch.setitem(sys.modules, "strands", None)  # the Lambda bundle has no Strands
+    monkeypatch.delitem(sys.modules, "handshake.dispute_agent")
+    module = importlib.import_module("handshake.dispute_agent")
+    assert module.RemoteDisputeAgent and module.agentcore_invoker

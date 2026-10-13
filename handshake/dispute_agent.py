@@ -26,8 +26,6 @@ import json
 from datetime import datetime, timezone
 from typing import Callable
 
-from strands import Agent, tool
-
 from .disputes import Disputes, DisputeError, Outcome, Question, _normalise
 
 REASON_TEXT = {
@@ -98,6 +96,8 @@ def exchange_for(question: Question) -> dict:
 
 
 def question_tools(facts: dict, out: dict):
+    from strands import tool  # imported here: the house's Lambda applies proposals without Strands
+
     @tool
     def claim_facts() -> dict:
         """What the merchant claims and what the doorbell camera established about it."""
@@ -122,6 +122,8 @@ def question_tools(facts: dict, out: dict):
 
 
 def interpretation_tools(exchange: dict, out: dict):
+    from strands import tool
+
     @tool
     def the_exchange() -> dict:
         """The question the resident was asked, and their reply exactly as written."""
@@ -150,6 +152,8 @@ def interpretation_tools(exchange: dict, out: dict):
 
 
 def propose_question(model, facts: dict, language: str = "English") -> str | None:
+    from strands import Agent
+
     out: dict = {}
     try:
         Agent(model=model, tools=question_tools(facts, out), system_prompt=ASK_PROMPT.format(language=language),
@@ -160,6 +164,8 @@ def propose_question(model, facts: dict, language: str = "English") -> str | Non
 
 
 def propose_interpretation(model, exchange: dict) -> dict | None:
+    from strands import Agent
+
     out: dict = {}
     try:
         Agent(model=model, tools=interpretation_tools(exchange, out), system_prompt=INTERPRET_PROMPT,
