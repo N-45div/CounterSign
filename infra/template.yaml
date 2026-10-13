@@ -28,6 +28,10 @@ Parameters:
     Type: Number
     Default: 300
     Description: Lab runs Nova may judge per day before the lab falls back to ground truth
+  DisputeAgentArn:
+    Type: String
+    Default: ""
+    Description: ARN of the dispute agent on AgentCore Runtime (scripts/deploy_agent.py prints it). Empty means template questions only.
 
 Globals:
   Function:
@@ -45,6 +49,7 @@ Globals:
         HANDSHAKE_PUBLIC_URL: !Ref PublicUrl
         HANDSHAKE_DEVICE_ID: !Ref DeviceId
         HANDSHAKE_WITNESS_MODEL: !Ref WitnessModel
+        HANDSHAKE_AGENT_RUNTIME_ARN: !Ref DisputeAgentArn
 
 Resources:
   Table:
@@ -135,6 +140,9 @@ Resources:
             - Effect: Allow
               Action: textract:DetectDocumentText
               Resource: "*"
+            - Effect: Allow
+              Action: bedrock-agentcore:InvokeAgentRuntime
+              Resource: !Sub "arn:${AWS::Partition}:bedrock-agentcore:${AWS::Region}:${AWS::AccountId}:runtime/handshake_dispute_agent-*"
 
   ApiPublicInvoke:
     Type: AWS::Lambda::Permission
@@ -166,6 +174,9 @@ Resources:
             - Effect: Allow
               Action: textract:DetectDocumentText
               Resource: "*"
+            - Effect: Allow
+              Action: bedrock-agentcore:InvokeAgentRuntime
+              Resource: !Sub "arn:${AWS::Partition}:bedrock-agentcore:${AWS::Region}:${AWS::AccountId}:runtime/handshake_dispute_agent-*"
       Events:
         DueClaims:
           Type: SQS
