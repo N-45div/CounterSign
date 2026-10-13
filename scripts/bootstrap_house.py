@@ -1,12 +1,13 @@
 """Create the house's secrets in AWS Secrets Manager (run once per house).
 
     handshake/house       JSON: house id, Ed25519 signing key, device salt,
-                          webhook signing key, merchants {name: sha256(api key)}
+                          webhook signing key, merchants {name: sha256(api key)},
+                          resident_key_sha256
     handshake/ring-token  the Ring access token; starts as a placeholder
 
-A demo merchant API key is generated and written to a file outside the repo
-(~/.secrets/handshake.env). Only its SHA-256 goes into the secret, and the key
-itself is never printed.
+A demo merchant API key and the resident's key are generated and written to a
+file outside the repo (~/.secrets/handshake.env). Only their SHA-256 goes into
+the secret, and the keys themselves are never printed.
 
     python scripts/bootstrap_house.py [--region us-east-1] [--merchant demo-shop]
 """
@@ -50,19 +51,22 @@ def main() -> int:
         print(f"{HOUSE_SECRET} already exists, leaving it alone")
     else:
         api_key = f"hsk_{args.merchant}_{secrets.token_urlsafe(24)}"
+        resident_key = f"hsr_{secrets.token_urlsafe(24)}"
         house = {
             "house_id": f"house-{secrets.token_hex(4)}",
             "signing_key_pem": HouseKey.generate().to_pem().decode(),
             "salt": secrets.token_hex(16),
             "webhook_signing_key": secrets.token_hex(32),  # replace with Ring's key when the app is registered
             "merchants": {args.merchant: hash_key(api_key)},
+            "resident_key_sha256": hash_key(resident_key),
         }
         house_arn = sm.create_secret(Name=HOUSE_SECRET, SecretString=json.dumps(house),
                                      Description="Handshake house keys and merchant key hashes")["ARN"]
         LOCAL_KEYS.parent.mkdir(parents=True, exist_ok=True)
         with LOCAL_KEYS.open("a", encoding="utf-8") as f:
-            f.write(f"HANDSHAKE_MERCHANT={args.merchant}\nHANDSHAKE_MERCHANT_KEY={api_key}\n")
-        print(f"created {HOUSE_SECRET} for {house['house_id']}; merchant key saved to {LOCAL_KEYS}")
+            f.write(f"HANDSHAKE_MERCHANT={args.merchant}\nHANDSHAKE_MERCHANT_KEY={api_key}\n"
+                    f"HANDSHAKE_RESIDENT_KEY={resident_key}\n")
+        print(f"created {HOUSE_SECRET} for {house['house_id']}; merchant and resident keys saved to {LOCAL_KEYS}")
 
     token_arn = _arn_if_exists(sm, TOKEN_SECRET)
     if not token_arn:
