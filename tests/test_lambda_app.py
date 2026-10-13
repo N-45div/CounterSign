@@ -10,6 +10,7 @@ from handshake.api import hash_key
 from handshake.receipt import HouseKey
 
 MERCHANT_KEY = "hsk_shop_abc"
+RESIDENT_KEY = "hsr_resident_abc"
 
 
 def url_event(method: str, path: str, body: dict | None = None, headers: dict | None = None) -> dict:
@@ -49,17 +50,21 @@ def deployed(monkeypatch):
         sm.create_secret(Name="hs/house", SecretString=json.dumps({
             "house_id": "h1", "signing_key_pem": key.to_pem().decode(), "salt": "s",
             "webhook_signing_key": "wh", "merchants": {"shop": hash_key(MERCHANT_KEY)},
+            "resident_key_sha256": hash_key(RESIDENT_KEY),
         }))
         sm.create_secret(Name="hs/ring-token", SecretString="not-set")
         for k, v in {"HANDSHAKE_TABLE": "hs", "HANDSHAKE_BUCKET": "hs-frames", "HANDSHAKE_QUEUE_URL": queue_url,
                      "HANDSHAKE_HOUSE_SECRET": "hs/house", "HANDSHAKE_RING_TOKEN_SECRET": "hs/ring-token",
                      "HANDSHAKE_PUBLIC_URL": "https://abc.lambda-url.us-east-1.on.aws"}.items():
             monkeypatch.setenv(k, v)
-        lambda_app.build.cache_clear()
-        lambda_app._mangum.cache_clear()
+        clear_caches()
         yield key, queue_url
-        lambda_app.build.cache_clear()
-        lambda_app._mangum.cache_clear()
+        clear_caches()
+
+
+def clear_caches():
+    for cached in (lambda_app.build, lambda_app._mangum, lambda_app.dispute_agent):
+        cached.cache_clear()
 
 
 def test_the_function_url_serves_health_and_keys(deployed):
@@ -115,3 +120,106 @@ def test_scheduler_delay_values(monkeypatch):
     sched.schedule("b", 120_500)
     sched.schedule("c", -1)
     assert [c["DelaySeconds"] for c in calls] == [900, 121, 0]
+
+
+def inconclusive_claim(key, claim_id="clm_7"):
+    from handshake.desk import ClaimRecord, ClaimStatus
+    from handshake.receipt import issue
+
+    now = int(time.time() * 1000)
+    token = issue(key, {"verdict": "inconclusive", "reason": "camera_not_recording", "visit": None},
+                  issuer="https://abc.lambda-url.us-east-1.on.aws", issued_at_s=now // 1000, receipt_id="r_7")
+    record = ClaimRecord(claim_id, "shop", "ORD-7", now, now, carrier="Delhivery", status=ClaimStatus.ISSUED,
+                         receipt_id="r_7", verdict="inconclusive", reason="camera_not_recording", token=token)
+    lambda_app.build()[2].put_claim(record)
+    return record
+
+
+def fake_agentcore(monkeypatch, up=True):
+    """Stands in for the dispute agent on AgentCore Runtime."""
+    payloads = []
+
+    def invoker(client, arn):
+        def invoke(payload):
+            payloads.append(payload)
+            if not up:
+                raise ConnectionError("AgentCore unavailable")
+            if payload["task"] == "question":
+                return {"question": f"Did your Delhivery parcel for {payload['facts']['order_id']} arrive?"}
+            return {"interpretation": {"outcome": "not_received", "quote": payload["exchange"]["reply"], "note": ""}}
+        return invoke
+
+    monkeypatch.setenv("HANDSHAKE_AGENT_RUNTIME_ARN", "arn:aws:bedrock-agentcore:us-east-1:123:runtime/agent-x")
+    monkeypatch.setattr(lambda_app, "agentcore_invoker", invoker)
+    lambda_app.dispute_agent.cache_clear()
+    return payloads
+
+
+def worker(*tasks):
+    return lambda_app.worker_handler({"Records": [
+        {"messageId": f"m{i}", "body": json.dumps(t)} for i, t in enumerate(tasks)]}, None)
+
+
+def resident(method, path, body=None):
+    resp = lambda_app.handler(url_event(method, path, body, {"authorization": f"Bearer {RESIDENT_KEY}"}), None)
+    return resp["statusCode"], json.loads(resp["body"])
+
+
+def test_only_inconclusive_receipts_are_sent_to_the_resident():
+    calls = []
+
+    class FakeSqs:
+        def send_message(self, **kw):
+            calls.append(json.loads(kw["MessageBody"]))
+
+    queue = lambda_app.SqsScheduler(FakeSqs(), "q")
+    for verdict in ("delivered", "not_observed", "inconclusive"):
+        lambda_app.ask_later(queue, type("R", (), {"verdict": verdict, "claim_id": f"clm_{verdict}"})())
+    assert calls == [{"task": "ask", "claim_id": "clm_inconclusive"}]
+
+
+def test_without_the_agent_the_worker_asks_with_the_template(deployed):
+    key, _ = deployed
+    inconclusive_claim(key)
+    assert worker({"task": "ask", "claim_id": "clm_7"}) == {"batchItemFailures": []}
+    question = lambda_app.build()[2].question_for_claim("clm_7")
+    assert question.text.startswith("Did your Delhivery parcel from shop (order ORD-7)")
+
+
+def test_the_agent_asks_and_a_resident_answer_is_signed_while_they_wait(deployed, monkeypatch):
+    key, _ = deployed
+    payloads = fake_agentcore(monkeypatch)
+    inconclusive_claim(key)
+    assert worker({"task": "ask", "claim_id": "clm_7"}) == {"batchItemFailures": []}
+    status, body = resident("GET", "/v1/resident/questions")
+    [question] = body["questions"]
+    assert status == 200 and question["text"] == "Did your Delhivery parcel for ORD-7 arrive?"
+
+    status, body = resident("POST", f"/v1/resident/questions/{question['question_id']}/answer",
+                            {"reply": "No, nothing came"})
+    assert status == 200 and body["status"] == "resolved" and body["outcome"] == "not_received"
+    assert [p["task"] for p in payloads] == ["question", "interpret"]
+    assert "Delhivery" in json.dumps(payloads[0]["facts"]) and "r_7" not in json.dumps(payloads)
+
+    merchant = lambda_app.handler(url_event("GET", "/v1/claims/clm_7", None,
+                                            {"authorization": f"Bearer {MERCHANT_KEY}"}), None)
+    dispute = json.loads(merchant["body"])["dispute"]
+    assert dispute["outcome"] == "not_received" and dispute["resolution"].count(".") == 2
+
+
+def test_when_the_agent_is_down_the_reply_waits_for_the_worker(deployed, monkeypatch):
+    key, queue_url = deployed
+    fake_agentcore(monkeypatch, up=False)
+    inconclusive_claim(key)
+    worker({"task": "ask", "claim_id": "clm_7"})
+    qid = lambda_app.build()[2].question_for_claim("clm_7").question_id
+    status, body = resident("POST", f"/v1/resident/questions/{qid}/answer", {"reply": "not sure"})
+    assert status == 202 and body["status"] == "answered"
+    counts = boto3.client("sqs").get_queue_attributes(
+        QueueUrl=queue_url, AttributeNames=["ApproximateNumberOfMessagesDelayed"])["Attributes"]
+    assert counts["ApproximateNumberOfMessagesDelayed"] == "1"
+    assert worker({"task": "interpret", "question_id": qid}) == {"batchItemFailures": [{"itemIdentifier": "m0"}]}
+
+    fake_agentcore(monkeypatch, up=True)
+    assert worker({"task": "interpret", "question_id": qid}) == {"batchItemFailures": []}
+    assert lambda_app.build()[2].get_question(qid).status == "resolved"

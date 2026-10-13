@@ -1,7 +1,8 @@
 """AWS Lambda entry points for the deployed house.
 
     handler         the HTTP API behind a Lambda Function URL (via Mangum)
-    worker_handler  drains the SQS queue of claims due for another attempt
+    worker_handler  drains the SQS queue: claims due for another attempt, and
+                    dispute tasks (ask the resident, read their reply)
 
 Configuration comes from environment variables set by the SAM template, and
 secrets from AWS Secrets Manager:
@@ -15,6 +16,13 @@ secrets from AWS Secrets Manager:
     HANDSHAKE_PUBLIC_URL         the house's public URL, used as receipt issuer
     HANDSHAKE_DEVICE_ID          optional; otherwise the first Ring device
     HANDSHAKE_WITNESS_MODEL      optional Bedrock model id for the witness
+    HANDSHAKE_AGENT_RUNTIME_ARN  the dispute agent on AgentCore Runtime; without
+                                 it residents get a template question and replies
+                                 wait for the agent
+    HANDSHAKE_AGENT_MODEL        the model the dispute agent runs, named in resolutions
+
+The house secret may also hold resident_key_sha256, which turns on the
+resident's question endpoints.
 """
 
 from __future__ import annotations
@@ -30,7 +38,9 @@ from mangum import Mangum
 
 from .api import create_app
 from .aws_store import DynamoStore
-from .desk import Desk
+from .desk import ClaimRecord, Desk
+from .dispute_agent import RemoteDisputeAgent, agentcore_invoker
+from .disputes import Disputes
 from .doorman import TextractOcr
 from .house import House, HouseConfig
 from .receipt import HouseKey
@@ -39,6 +49,8 @@ from .tokens import SecretToken
 from .witness import DEFAULT_MODEL, NovaWitness
 
 MAX_SQS_DELAY_S = 900
+INTERPRET_RETRY_S = 60
+DEFAULT_AGENT_MODEL = "us.amazon.nova-2-lite-v1:0"
 
 
 class SqsScheduler:
@@ -54,9 +66,17 @@ class SqsScheduler:
         self._now = clock_ms
 
     def schedule(self, claim_id: str, at_ms: int) -> None:
-        delay = min(MAX_SQS_DELAY_S, max(0, math.ceil((at_ms - self._now()) / 1000)))
-        self.sqs.send_message(QueueUrl=self.queue_url, MessageBody=json.dumps({"claim_id": claim_id}),
-                              DelaySeconds=delay)
+        self.enqueue({"claim_id": claim_id}, math.ceil((at_ms - self._now()) / 1000))
+
+    def enqueue(self, task: dict, delay_s: int = 0) -> None:
+        self.sqs.send_message(QueueUrl=self.queue_url, MessageBody=json.dumps(task),
+                              DelaySeconds=min(MAX_SQS_DELAY_S, max(0, delay_s)))
+
+
+def ask_later(queue: SqsScheduler, record: ClaimRecord) -> None:
+    """An inconclusive receipt goes to the resident; the worker asks."""
+    if record.verdict == "inconclusive":
+        queue.enqueue({"task": "ask", "claim_id": record.claim_id})
 
 
 def _first_device(ring: RingClient) -> str:
@@ -87,14 +107,38 @@ def build() -> tuple[Desk, House, DynamoStore, dict]:
     )
     house = House(config, ring, witness, HouseKey.from_pem(house_secret["signing_key_pem"].encode()), store,
                   device_resolver=lambda: _first_device(ring))
-    desk = Desk(house, store, SqsScheduler(session.client("sqs"), env["HANDSHAKE_QUEUE_URL"]))
+    queue = SqsScheduler(session.client("sqs"), env["HANDSHAKE_QUEUE_URL"])
+    desk = Desk(house, store, queue, on_issued=lambda record: ask_later(queue, record))
     return desk, house, store, house_secret
+
+
+def _no_agent(payload: dict) -> dict:
+    raise RuntimeError("HANDSHAKE_AGENT_RUNTIME_ARN is not set")
+
+
+@lru_cache(maxsize=1)
+def dispute_agent() -> RemoteDisputeAgent:
+    desk, house, store, _ = build()
+    arn = os.environ.get("HANDSHAKE_AGENT_RUNTIME_ARN", "")
+    invoke = agentcore_invoker(boto3.client("bedrock-agentcore"), arn) if arn else _no_agent
+    return RemoteDisputeAgent(invoke, Disputes(store, house.key, house.config.issuer),
+                              os.environ.get("HANDSHAKE_AGENT_MODEL") or DEFAULT_AGENT_MODEL)
+
+
+def interpret_now_or_later(question_id: str) -> None:
+    """Read the reply while the resident waits; if the agent is not there, the worker retries."""
+    question = dispute_agent().interpret(question_id)
+    if question is not None and question.status == "answered":
+        desk = build()[0]
+        desk.scheduler.enqueue({"task": "interpret", "question_id": question_id}, INTERPRET_RETRY_S)
 
 
 @lru_cache(maxsize=1)
 def _mangum() -> Mangum:
     desk, house, store, secret = build()
-    app = create_app(desk, house, store, secret.get("merchants", {}), secret.get("webhook_signing_key"))
+    app = create_app(desk, house, store, secret.get("merchants", {}), secret.get("webhook_signing_key"),
+                     disputes=dispute_agent().disputes, resident_key_hash=secret.get("resident_key_sha256"),
+                     interpret_reply=interpret_now_or_later)
     return Mangum(app, lifespan="off")
 
 
@@ -102,13 +146,27 @@ def handler(event, context):
     return _mangum()(event, context)
 
 
+def run_task(task: dict) -> None:
+    kind = task.get("task", "attempt")
+    if kind == "ask":
+        claim = build()[2].get_claim(task["claim_id"])
+        if claim is None:
+            raise KeyError(task["claim_id"])
+        dispute_agent().ask(claim)
+    elif kind == "interpret":
+        question = dispute_agent().interpret(task["question_id"])
+        if question is not None and question.status == "answered":
+            raise RuntimeError("no interpretation backed by the reply yet")  # SQS retries, then the DLQ
+    else:
+        build()[0].attempt(task["claim_id"])
+
+
 def worker_handler(event, context):
-    """SQS batch: attempt each due claim; report failures so SQS retries only those."""
-    desk = build()[0]
+    """SQS batch: run each task; report failures so SQS retries only those."""
     failures = []
     for record in event.get("Records", []):
         try:
-            desk.attempt(json.loads(record["body"])["claim_id"])
-        except Exception:  # one bad claim must not sink the batch
+            run_task(json.loads(record["body"]))
+        except Exception:  # one bad task must not sink the batch
             failures.append({"itemIdentifier": record["messageId"]})
     return {"batchItemFailures": failures}
