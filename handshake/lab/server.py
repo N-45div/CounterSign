@@ -84,6 +84,10 @@ class ReplyIn(BaseModel):
     reply: str = Field(min_length=1, max_length=2000)
 
 
+class AskIn(BaseModel):
+    timezone: str | None = Field(default=None, max_length=64, description="the visitor's IANA timezone")
+
+
 def create_lab(
     sessions,
     house_store,
@@ -206,7 +210,7 @@ def create_lab(
         return Response(frames[kind], media_type="image/jpeg", headers={"Cache-Control": "private, max-age=3600"})
 
     @app.post("/lab/s/{sid}/claims/{claim_id}/ask")
-    def ask(sid: str, claim_id: str, request: Request):
+    def ask(sid: str, claim_id: str, request: Request, body: AskIn | None = None):
         world = sessions.world(sid)
         record = session_claim(world, claim_id) if world is not None else None
         if record is None:
@@ -214,10 +218,11 @@ def create_lab(
         if record.verdict != "inconclusive":
             return _err(409, "NOT_INCONCLUSIVE", "only claims the camera could not settle go to the resident")
         disputes, agent = agent_for(request)
+        tz = body.timezone if body else None
         if agent is not None:
-            question, by_model = agent.ask(record)
+            question, by_model = agent.ask(record, tz)
         else:
-            question, by_model = disputes.open(record, template_question(record)), False
+            question, by_model = disputes.open(record, template_question(record, tz)), False
         return {**_question_view(question), "asked_by": agent.model_id if by_model else "template",
                 "agent": agent_label if agent is not None else None}
 
@@ -277,7 +282,8 @@ def main() -> None:
         from strands.models import BedrockModel
 
         from ..dispute_agent import DisputeAgent
-        model = BedrockModel(model_id=args.model, region_name=os.environ.get("AWS_REGION", "us-east-1"), temperature=0.2)
+        region = os.environ.get("AWS_REGION", "us-east-1")
+        model = BedrockModel(model_id=args.model, region_name=region, temperature=0.2)
         agent, label = lambda d: DisputeAgent(model, d, args.model), "Strands agent (this process)"  # noqa: E731
     elif args.agent == "agentcore":
         import boto3

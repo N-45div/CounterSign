@@ -126,3 +126,14 @@ def test_the_house_side_loads_without_strands(monkeypatch):
     monkeypatch.delitem(sys.modules, "handshake.dispute_agent")
     module = importlib.import_module("handshake.dispute_agent")
     assert module.RemoteDisputeAgent and module.agentcore_invoker
+
+
+def test_questions_name_the_day_in_the_residents_timezone():
+    from handshake.dispute_agent import _day
+
+    late = 1_791_491_400_000  # 2026-10-08 20:30 UTC, already 9 October in India
+    assert _day(late) == "Thursday 08 October 2026"
+    assert _day(late, "Asia/Kolkata") == "Friday 09 October 2026"
+    assert _day(late, "Not/AZone") == _day(late, "../../etc/passwd") == "Thursday 08 October 2026"
+    record = claim()
+    assert claim_facts_for(record, "Asia/Kolkata")["claimed_delivered_on"] == _day(record.claimed_at_ms, "Asia/Kolkata")

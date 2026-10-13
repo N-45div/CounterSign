@@ -1,7 +1,7 @@
 """Build and deploy the house with CloudFormation (no SAM CLI needed).
 
     python scripts/deploy.py --house-secret <arn> --ring-token-secret <arn> --lab-secret <arn>
-        [--public-url URL] [--agent-arn ARN]
+        [--public-url URL] [--agent-arn ARN] [--timezone Asia/Kolkata]
 
 Steps: build the Lambda bundle, make sure an artifact bucket exists, then
 `aws cloudformation package` and `aws cloudformation deploy` the SAM template.
@@ -50,6 +50,7 @@ def main() -> int:
     parser.add_argument("--device-id", default="")
     parser.add_argument("--witness-model", default="us.amazon.nova-2-lite-v1:0")
     parser.add_argument("--agent-arn", default="", help="dispute agent on AgentCore Runtime (deploy_agent.py)")
+    parser.add_argument("--timezone", default="UTC", help="the household's IANA timezone")
     parser.add_argument("--region", default="us-east-1")
     parser.add_argument("--skip-build", action="store_true", help="reuse build/lambda from a previous build")
     args = parser.parse_args()
@@ -64,7 +65,8 @@ def main() -> int:
         "--no-fail-on-empty-changeset", "--parameter-overrides",
         f"HouseSecretArn={args.house_secret}", f"RingTokenSecretArn={args.ring_token_secret}",
         f"PublicUrl={args.public_url}", f"DeviceId={args.device_id}", f"WitnessModel={args.witness_model}",
-        f"LabSecretArn={args.lab_secret}", f"DisputeAgentArn={args.agent_arn}")
+        f"LabSecretArn={args.lab_secret}", f"DisputeAgentArn={args.agent_arn}",
+        f"HouseTimezone={args.timezone}")
 
     stack = boto3.client("cloudformation", region_name=args.region).describe_stacks(StackName=STACK)["Stacks"][0]
     outputs = {o["OutputKey"]: o["OutputValue"] for o in stack.get("Outputs", [])}

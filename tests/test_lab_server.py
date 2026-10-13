@@ -196,3 +196,13 @@ def test_without_an_agent_the_question_is_a_template_and_the_reply_waits(lab_url
     assert q["asked_by"] == "template" and q["text"].startswith("Did your Lab Courier parcel from lab-courier")
     waiting = reply(lab_url, tl, q["question_id"], "yes it came").json()
     assert waiting["status"] == "answered" and waiting["agent"] is None
+
+
+def test_the_lab_names_the_day_in_the_visitors_timezone(lab_url):
+    from handshake.dispute_agent import _day
+
+    tl = start(lab_url, "camera_offline")
+    receipt = claim(lab_url, tl, "ORD-tz")
+    q = requests.post(f"{lab_url}/lab/s/{tl['session']}/claims/{receipt['claim_id']}/ask",
+                      json={"timezone": "Pacific/Kiritimati"}, timeout=30).json()
+    assert q["text"].endswith(f"arrive on {_day(tl['claim_at_ms'], 'Pacific/Kiritimati')}?")

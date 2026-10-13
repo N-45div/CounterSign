@@ -28,6 +28,10 @@ Parameters:
     Type: Number
     Default: 300
     Description: Lab runs Nova may judge per day before the lab falls back to ground truth
+  HouseTimezone:
+    Type: String
+    Default: UTC
+    Description: The household's IANA timezone (for example Asia/Kolkata), so questions name the resident's day
   DisputeAgentArn:
     Type: String
     Default: ""
@@ -50,6 +54,7 @@ Globals:
         HANDSHAKE_DEVICE_ID: !Ref DeviceId
         HANDSHAKE_WITNESS_MODEL: !Ref WitnessModel
         HANDSHAKE_AGENT_RUNTIME_ARN: !Ref DisputeAgentArn
+        HANDSHAKE_TIMEZONE: !Ref HouseTimezone
 
 Resources:
   Table:

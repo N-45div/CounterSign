@@ -23,8 +23,9 @@ from __future__ import annotations
 
 import base64
 import json
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import Callable
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from .disputes import Disputes, DisputeError, Outcome, Question, _normalise
 
@@ -65,23 +66,32 @@ def _payload(token: str) -> dict:
     return json.loads(base64.urlsafe_b64decode(part + "=" * (-len(part) % 4)))
 
 
-def _day(ms: int) -> str:
-    return datetime.fromtimestamp(ms / 1000, timezone.utc).strftime("%A %d %B %Y")
+def zone(name: str | None) -> ZoneInfo:
+    """The resident's timezone, so a question names the day they lived through; UTC if unknown."""
+    try:
+        return ZoneInfo(name or "UTC")
+    except (ZoneInfoNotFoundError, ValueError):
+        return ZoneInfo("UTC")
 
 
-def template_question(claim) -> str:
+def _day(ms: int, tz: str | None = None) -> str:
+    return datetime.fromtimestamp(ms / 1000, zone(tz)).strftime("%A %d %B %Y")
+
+
+def template_question(claim, tz: str | None = None) -> str:
     who = f"{claim.carrier} " if claim.carrier else ""
-    return f"Did your {who}parcel from {claim.merchant} (order {claim.order_id}) arrive on {_day(claim.claimed_at_ms)}?"
+    day = _day(claim.claimed_at_ms, tz)
+    return f"Did your {who}parcel from {claim.merchant} (order {claim.order_id}) arrive on {day}?"
 
 
-def claim_facts_for(claim) -> dict:
+def claim_facts_for(claim, tz: str | None = None) -> dict:
     """What the agent may know about a claim: no Ring ids, no frames, no keys."""
     visit = _payload(claim.token).get("visit") if claim.token else None
     return {
         "merchant": claim.merchant,
         "carrier": claim.carrier,
         "order_id": claim.order_id,
-        "claimed_delivered_on": _day(claim.claimed_at_ms),
+        "claimed_delivered_on": _day(claim.claimed_at_ms, tz),
         "why_the_camera_could_not_settle_it": REASON_TEXT.get(claim.reason, claim.reason),
         "someone_came_to_the_door": visit is not None,
     }
@@ -185,18 +195,19 @@ class _Applies:
     def _question(self, facts: dict) -> str | None: ...  # pragma: no cover
     def _interpretation(self, exchange: dict) -> dict | None: ...  # pragma: no cover
 
-    def ask(self, claim) -> tuple[Question, bool]:
-        """(question, asked_by_model). Falls back to a template so a claim never stalls."""
+    def ask(self, claim, tz: str | None = None) -> tuple[Question, bool]:
+        """(question, asked_by_model), naming days in the resident's timezone `tz`.
+        Falls back to a template so a claim never stalls."""
         existing = self.disputes.store.question_for_claim(claim.claim_id)
         if existing is not None:
             return existing, False
-        proposed = self._question(claim_facts_for(claim))
+        proposed = self._question(claim_facts_for(claim, tz))
         if proposed:
             try:
                 return self.disputes.open(claim, proposed), True
             except DisputeError:
                 pass
-        return self.disputes.open(claim, template_question(claim)), False
+        return self.disputes.open(claim, template_question(claim, tz)), False
 
     def interpret(self, question_id: str) -> Question:
         """Resolve an answered question. Left answered when no outcome could be backed by a quote."""

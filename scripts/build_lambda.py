@@ -16,7 +16,8 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 OUT = ROOT / "build" / "lambda"
-RUNTIME_DEPS = ["requests>=2.32", "cryptography>=43", "fastapi>=0.115", "mangum>=0.19", "pillow>=10.1"]
+RUNTIME_DEPS = ["requests>=2.32", "cryptography>=43", "fastapi>=0.115", "mangum>=0.19", "pillow>=10.1",
+                "tzdata>=2024.1"]
 
 
 def main() -> int:

@@ -212,7 +212,9 @@ async function askResident(tl, claim) {
   $("resident").textContent = config.dispute_agent
     ? `The camera could not settle it, so the house asks the resident. ${config.dispute_agent} is wording one neutral question…`
     : "The camera could not settle it, so the house asks the resident.";
-  const res = await fetch(`/lab/s/${tl.session}/claims/${claim.claim_id}/ask`, { method: "POST" });
+  const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  const res = await fetch(`/lab/s/${tl.session}/claims/${claim.claim_id}/ask`, {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ timezone }) });
   const q = await res.json();
   if (!res.ok) { $("resident").textContent = `Could not ask the resident: ${errorText(q)}`; return; }
   $("resident").textContent = q.asked_by === "template"

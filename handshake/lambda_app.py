@@ -20,6 +20,7 @@ secrets from AWS Secrets Manager:
                                  it residents get a template question and replies
                                  wait for the agent
     HANDSHAKE_AGENT_MODEL        the model the dispute agent runs, named in resolutions
+    HANDSHAKE_TIMEZONE           the household's IANA timezone, for days in questions (UTC)
 
 The house secret may also hold resident_key_sha256, which turns on the
 resident's question endpoints.
@@ -152,7 +153,7 @@ def run_task(task: dict) -> None:
         claim = build()[2].get_claim(task["claim_id"])
         if claim is None:
             raise KeyError(task["claim_id"])
-        dispute_agent().ask(claim)
+        dispute_agent().ask(claim, os.environ.get("HANDSHAKE_TIMEZONE"))
     elif kind == "interpret":
         question = dispute_agent().interpret(task["question_id"])
         if question is not None and question.status == "answered":
