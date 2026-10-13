@@ -1,6 +1,11 @@
 """The Doorstep Lab server: the Ring emulator, a lab house, and the 3D page.
 
     python -m handshake.lab.server [--port 8800] [--witness nova|truth] [--model MODEL]
+                                   [--agent none|local|agentcore]
+
+--agent local runs the dispute agent's Strands proposals in this process (the
+agent extra); --agent agentcore calls the deployed one named by
+HANDSHAKE_AGENT_RUNTIME_ARN.
 
 Every visitor gets a session (see sessions.py), so the same app runs locally
 for one person and on Lambda for many:
@@ -254,6 +259,7 @@ def main() -> None:
     parser.add_argument("--port", type=int, default=8800)
     parser.add_argument("--witness", choices=["nova", "truth"], default="nova")
     parser.add_argument("--model", default="us.amazon.nova-2-lite-v1:0")
+    parser.add_argument("--agent", choices=["none", "local", "agentcore"], default="none")
     args = parser.parse_args()
 
     nova = None
@@ -266,9 +272,25 @@ def main() -> None:
         runtime, textract = aws.client("bedrock-runtime"), aws.client("textract")
         nova = lambda: NovaWitness(runtime, args.model, TextractOcr(textract))  # noqa: E731
 
+    agent, label = None, None
+    if args.agent == "local":
+        from strands.models import BedrockModel
+
+        from ..dispute_agent import DisputeAgent
+        model = BedrockModel(model_id=args.model, region_name=os.environ.get("AWS_REGION", "us-east-1"), temperature=0.2)
+        agent, label = lambda d: DisputeAgent(model, d, args.model), "Strands agent (this process)"  # noqa: E731
+    elif args.agent == "agentcore":
+        import boto3
+
+        from ..dispute_agent import RemoteDisputeAgent, agentcore_invoker
+        invoke = agentcore_invoker(boto3.client("bedrock-agentcore"), os.environ["HANDSHAKE_AGENT_RUNTIME_ARN"])
+        agent = lambda d: RemoteDisputeAgent(invoke, d, args.model)  # noqa: E731
+        label = "Strands agent on Amazon Bedrock AgentCore Runtime"
+
     base = f"http://127.0.0.1:{args.port}"
-    app = create_lab(MemorySessions(), MemoryStore(), HouseKey.generate(), "lab-webhook-key", nova, base)
-    print(f"Doorstep Lab on {base}  (witness: {args.witness})")
+    app = create_lab(MemorySessions(), MemoryStore(), HouseKey.generate(), "lab-webhook-key", nova, base,
+                     dispute_agent=agent, agent_label=label)
+    print(f"Doorstep Lab on {base}  (witness: {args.witness}, dispute agent: {args.agent})")
     uvicorn.run(app, host="127.0.0.1", port=args.port, log_level="warning")
 
 

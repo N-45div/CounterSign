@@ -212,6 +212,9 @@ Resources:
             - Effect: Allow
               Action: textract:DetectDocumentText
               Resource: "*"
+            - Effect: Allow
+              Action: bedrock-agentcore:InvokeAgentRuntime
+              Resource: !Sub "arn:${AWS::Partition}:bedrock-agentcore:${AWS::Region}:${AWS::AccountId}:runtime/handshake_dispute_agent-*"
 
   LabPublicInvoke:
     Type: AWS::Lambda::Permission

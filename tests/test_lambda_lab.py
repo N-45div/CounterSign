@@ -52,3 +52,12 @@ def test_a_hosted_session_is_stored_and_its_ring_token_works(hosted):
     assert status == 200 and json.loads(resp["body"])["data"][0]["id"] == tl["device_id"]
     status, _ = call(url_event("GET", "/v1/devices", headers={"authorization": "Bearer lab_unknown"}))
     assert status == 401
+
+
+def test_the_hosted_lab_uses_the_agentcore_agent_when_configured(hosted, monkeypatch):
+    status, resp = call(url_event("GET", "/lab/config"))
+    assert json.loads(resp["body"])["dispute_agent"] is None
+    monkeypatch.setenv("HANDSHAKE_AGENT_RUNTIME_ARN", "arn:aws:bedrock-agentcore:us-east-1:123:runtime/x")
+    lambda_lab._app.cache_clear()
+    status, resp = call(url_event("GET", "/lab/config"))
+    assert json.loads(resp["body"])["dispute_agent"] == lambda_lab.AGENT_LABEL
