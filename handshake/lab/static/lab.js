@@ -1,5 +1,7 @@
 // Doorstep Lab controller: plays a scenario in 3D, uploads what the doorbell records to the
 // Ring emulator, then submits the courier's claim to the house and checks the signed receipt.
+// When the camera cannot settle the claim, the visitor answers the resident's question and
+// gets a second signed receipt: the resolution.
 import { createWorld } from "./scene.js";
 
 const $ = (id) => document.getElementById(id);
@@ -21,6 +23,12 @@ const REASONS = {
   package_state_unknown: "The witness could not tell whether a parcel was there.",
 };
 const VERDICTS = { delivered: "Delivered", not_observed: "Not observed", inconclusive: "Inconclusive" };
+const OUTCOMES = {
+  received: ["Received", "The resident says the parcel arrived."],
+  not_received: ["Not received", "The resident says no parcel arrived."],
+  unsure: ["Unsure", "The resident could not say either way, and the resolution records exactly that."],
+};
+const SUGGESTED = ["Haan mil gaya, guard ke paas tha", "No, nothing came. I was home all day", "Not sure, a neighbour may have taken it"];
 
 const clock = (ms) => new Date(ms).toISOString().slice(11, 19) + " UTC";
 const within = (t, s, e) => t >= s && t < (e ?? Infinity);
@@ -65,6 +73,9 @@ function resetConsole() {
   $("evidence").hidden = true;
   $("receipt").className = "muted"; $("receipt").textContent = "Nothing signed yet.";
   $("payload-box").hidden = true;
+  $("step-resident").hidden = true; $("phone").hidden = true;
+  $("r-text").hidden = true; $("reply-form").hidden = false; $("chips").hidden = false; $("reply").value = "";
+  $("resolution").hidden = true; $("resolution-box").hidden = true;
 }
 
 function log(text) {
@@ -144,6 +155,7 @@ async function finish(r) {
   $("witness").textContent = `witness: ${body.witness || config.witness}`;
   if (body.receipt) await showReceipt(body.receipt);
   lockButtons(null);
+  if (body.verdict === "inconclusive") await askResident(r.tl, body);
 }
 
 function showVerdict(body, tl) {
@@ -153,7 +165,8 @@ function showVerdict(body, tl) {
   v.className = `verdict ${body.verdict}`;
   v.innerHTML = `<span class="big">${VERDICTS[body.verdict]}</span>${REASONS[body.reason] || body.reason}
     <div class="muted" style="margin-top:6px">reason: <code>${body.reason}</code> · ${match ? "<span class='check'>matches the scenario</span>" : "<span class='fail'>differs from the scenario's expected verdict</span>"}</div>`;
-  if (body.receipt_id) {
+  const evidence = body.receipt ? JSON.parse(new TextDecoder().decode(b64url(body.receipt.split(".")[1]))).evidence : [];
+  if (body.receipt_id && evidence.length) {
     $("ev-before").src = `/lab/s/${tl.session}/evidence/${body.receipt_id}/before`;
     $("ev-after").src = `/lab/s/${tl.session}/evidence/${body.receipt_id}/after`;
     $("ev-before").onerror = $("ev-after").onerror = () => { $("evidence").hidden = true; };
@@ -163,26 +176,103 @@ function showVerdict(body, tl) {
 
 const b64url = (s) => Uint8Array.from(atob(s.replace(/-/g, "+").replace(/_/g, "/") + "===".slice((s.length + 3) % 4)), (c) => c.charCodeAt(0));
 
-async function showReceipt(token) {
+// Checks a compact JWS from the lab house against its published key, in this browser.
+async function verifyJws(token) {
   const [h, p, sig] = token.split(".");
   const header = JSON.parse(new TextDecoder().decode(b64url(h)));
   const payload = JSON.parse(new TextDecoder().decode(b64url(p)));
   const jwks = await (await fetch("/lab/jwks.json")).json();
   const jwk = jwks.keys.find((k) => k.kid === header.kid);
-  let verdict;
+  let status;
   try {
     const key = await crypto.subtle.importKey("jwk", { kty: "OKP", crv: "Ed25519", x: jwk.x }, { name: "Ed25519" }, false, ["verify"]);
     const ok = await crypto.subtle.verify({ name: "Ed25519" }, key, b64url(sig), new TextEncoder().encode(`${h}.${p}`));
-    verdict = ok ? "<span class='check'>Signature verified in this browser</span>" : "<span class='fail'>Signature does not verify</span>";
+    status = ok ? "<span class='check'>Signature verified in this browser</span>" : "<span class='fail'>Signature does not verify</span>";
   } catch (e) {
-    verdict = `<span class='muted'>This browser cannot check Ed25519 signatures (${e.name}).</span>`;
+    status = `<span class='muted'>This browser cannot check Ed25519 signatures (${e.name}).</span>`;
   }
+  return { header, payload, status };
+}
+
+async function showReceipt(token) {
+  const { header, payload, status: verdict } = await verifyJws(token);
   $("receipt").className = "";
   $("receipt").innerHTML = `${verdict} · Ed25519 · key <code>${header.kid.slice(0, 12)}…</code><br>
     <code>${token.slice(0, 96)}…</code>
     <div class="muted" style="margin-top:6px">${payload.evidence.length} evidence hashes, no frames, device pseudonym <code>${payload.device}</code></div>`;
   $("payload").textContent = JSON.stringify(payload, null, 2);
   $("payload-box").hidden = false;
+}
+
+const errorText = (body) => body.errors?.[0]?.detail || body.detail || "something went wrong";
+
+async function askResident(tl, claim) {
+  $("step-resident").hidden = false;
+  $("resident").className = "muted";
+  $("resident").textContent = config.dispute_agent
+    ? `The camera could not settle it, so the house asks the resident. ${config.dispute_agent} is wording one neutral question…`
+    : "The camera could not settle it, so the house asks the resident.";
+  const res = await fetch(`/lab/s/${tl.session}/claims/${claim.claim_id}/ask`, { method: "POST" });
+  const q = await res.json();
+  if (!res.ok) { $("resident").textContent = `Could not ask the resident: ${errorText(q)}`; return; }
+  $("resident").textContent = q.asked_by === "template"
+    ? "A plain template question (no dispute agent available)."
+    : `Question worded by ${q.agent} · ${q.asked_by}`;
+  $("q-text").textContent = q.text;
+  $("chips").innerHTML = "";
+  for (const text of SUGGESTED) {
+    const b = document.createElement("button"); b.type = "button"; b.textContent = text;
+    b.onclick = () => { $("reply").value = text; $("reply").focus(); };
+    $("chips").append(b);
+  }
+  $("reply-form").onsubmit = (e) => { e.preventDefault(); answer(tl, q); };
+  $("phone").hidden = false;
+}
+
+function highlight(el, text, quote) {
+  el.textContent = "";
+  const at = quote ? text.toLowerCase().indexOf(quote.toLowerCase()) : -1;
+  if (at < 0) { el.textContent = text; return; }
+  const mark = document.createElement("mark"); mark.textContent = text.slice(at, at + quote.length);
+  el.append(text.slice(0, at), mark, text.slice(at + quote.length));
+}
+
+const sha256hex = async (text) =>
+  [...new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text)))].map((b) => b.toString(16).padStart(2, "0")).join("");
+
+async function answer(tl, q) {
+  const text = $("reply").value.trim();
+  if (!text) return;
+  $("reply-form").hidden = true; $("chips").hidden = true;
+  $("r-text").textContent = text; $("r-text").hidden = false;
+  const out = $("resolution");
+  out.hidden = false; out.className = "verdict muted";
+  out.textContent = q.agent ? `${q.agent} is reading the reply…` : "Recording the reply…";
+  const res = await fetch(`/lab/s/${tl.session}/questions/${q.question_id}/answer`, {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ reply: text }) });
+  const body = await res.json();
+  if (!res.ok) { out.textContent = `Could not record the reply: ${errorText(body)}`; return; }
+  if (body.status !== "resolved") {
+    out.textContent = body.agent
+      ? "The agent could not back an outcome with the resident's own words, so nothing was signed."
+      : "Recorded. This lab has no dispute agent to read it, so nothing was signed.";
+    return;
+  }
+  highlight($("r-text"), text, body.quote);
+  const { payload, status } = await verifyJws(body.resolution);
+  const sameWords = payload.statement_sha256 === (await sha256hex(text));
+  const [title, line] = OUTCOMES[body.outcome];
+  out.className = `verdict ${body.outcome}`;
+  out.innerHTML = `<span class="big">${title}</span>${line}
+    <div class="muted" style="margin-top:6px">The highlighted words are the quote the agent had to find in the reply; the house refuses any other.</div>
+    <div style="margin-top:8px">${status} · resolves receipt <code>${payload.resolves}</code></div>
+    <div class="muted" style="margin-top:4px">The reply itself is not in the resolution, only its SHA-256${sameWords ? ", <span class='check'>which matches what you typed</span>" : ""}.</div>`;
+  if (body.note) {
+    const note = document.createElement("div"); note.className = "muted"; note.style.marginTop = "4px";
+    note.textContent = `Agent's note: ${body.note}`; out.append(note);
+  }
+  $("resolution-payload").textContent = JSON.stringify(payload, null, 2);
+  $("resolution-box").hidden = false;
 }
 
 init();

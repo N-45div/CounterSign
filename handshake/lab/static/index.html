@@ -54,6 +54,21 @@
           <div id="receipt" class="muted">Nothing signed yet.</div>
           <details id="payload-box" hidden><summary>Receipt contents</summary><pre id="payload"></pre></details>
         </li>
+        <li id="step-resident" hidden><h3>The resident settles it</h3>
+          <div id="resident" class="muted"></div>
+          <div class="phone" id="phone" hidden>
+            <div class="phone-head">Handshake · your front door</div>
+            <p class="bubble house" id="q-text"></p>
+            <p class="bubble you" id="r-text" hidden></p>
+            <div class="chips" id="chips"></div>
+            <form id="reply-form" class="reply">
+              <input id="reply" maxlength="2000" autocomplete="off" placeholder="Reply in your own words, any language">
+              <button>Send</button>
+            </form>
+          </div>
+          <div id="resolution" class="verdict muted" hidden></div>
+          <details id="resolution-box" hidden><summary>Resolution contents</summary><pre id="resolution-payload"></pre></details>
+        </li>
       </ol>
     </aside>
   </main>
