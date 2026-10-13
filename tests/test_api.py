@@ -107,3 +107,83 @@ def test_webhook_records_status_once_and_rejects_bad_signatures(world):
 
     _, bad_headers = signed(OFFLINE, key="someone-else")
     assert client.post("/webhooks/ring", content=raw, headers=bad_headers).status_code == 401
+
+
+RESIDENT = "hsr_resident_456"
+
+
+@pytest.fixture
+def resident_world():
+    from handshake.desk import ClaimRecord, ClaimStatus
+    from handshake.disputes import Disputes
+    from handshake.receipt import issue
+
+    clock = Clock(T0 + 60_000)
+    store = MemoryStore()
+    key = HouseKey.generate()
+    house = House(HouseConfig("h1", "https://h.example/h/h1", "dev", "salt"), FakeRing(), Witness(), key, store,
+                  clock_ms=clock)
+    desk = Desk(house, store, Recorder(), clock_ms=clock)
+    disputes = Disputes(store, key, "https://h.example/h/h1", clock_ms=clock)
+    token = issue(key, {"verdict": "inconclusive", "reason": "camera_not_recording"}, issuer="https://h.example/h/h1",
+                  issued_at_s=T0 // 1000, receipt_id="r_1")
+    record = ClaimRecord("clm_1", "shop", "ORD-9", T0, T0, carrier="Delhivery", status=ClaimStatus.ISSUED,
+                         receipt_id="r_1", verdict="inconclusive", reason="camera_not_recording", token=token)
+    store.put_claim(record)
+    question = disputes.open(record, "Did your Delhivery parcel for ORD-9 arrive?")
+    interpreted = []
+
+    def interpret(question_id):  # stands in for the dispute agent: quotes the reply it was given
+        interpreted.append(question_id)
+        return disputes.resolve(question_id, "not_received", "nothing came", "test-model")
+
+    def make(interpret_reply=interpret):
+        app = create_app(desk, house, store, {"shop": hash_key(KEY)}, WEBHOOK_KEY, clock, disputes=disputes,
+                         resident_key_hash=hash_key(RESIDENT), interpret_reply=interpret_reply)
+        return TestClient(app)
+
+    return make, question, interpreted
+
+
+def test_resident_routes_take_only_the_resident_key(world, resident_world):
+    plain, *_ = world
+    assert plain.get("/v1/resident/questions", headers=auth(RESIDENT)).status_code == 503
+    make, *_ = resident_world
+    client = make()
+    assert client.get("/v1/resident/questions").status_code == 401
+    assert client.get("/v1/resident/questions", headers=auth(KEY)).status_code == 401
+    assert client.get("/v1/resident/questions/q_nope", headers=auth(RESIDENT)).status_code == 404
+
+
+def test_a_resident_answer_becomes_a_signed_resolution_the_merchant_can_fetch(resident_world):
+    make, question, interpreted = resident_world
+    client = make()
+    listed = client.get("/v1/resident/questions", headers=auth(RESIDENT)).json()["questions"]
+    assert [q["question_id"] for q in listed] == [question.question_id]
+    before = client.get("/v1/claims/clm_1", headers=auth()).json()["dispute"]
+    assert before == {"status": "open", "question": question.text, "asked_at_ms": question.asked_at_ms}
+
+    r = client.post(f"/v1/resident/questions/{question.question_id}/answer",
+                    json={"reply": "Nothing came, I was home all day"}, headers=auth(RESIDENT))
+    assert r.status_code == 200 and r.json()["outcome"] == "not_received" and interpreted == [question.question_id]
+    assert client.get("/v1/resident/questions", headers=auth(RESIDENT)).json()["questions"] == []
+
+    dispute = client.get("/v1/claims/clm_1", headers=auth()).json()["dispute"]
+    assert dispute["outcome"] == "not_received" and "reply" not in dispute and "quote" not in dispute
+    body = verify(dispute["resolution"], client.get("/.well-known/jwks.json").json())
+    assert body["kind"] == "resolution" and body["resolves"] == "r_1" and body["outcome"] == "not_received"
+
+    again = client.post(f"/v1/resident/questions/{question.question_id}/answer", json={"reply": "actually yes"},
+                        headers=auth(RESIDENT))
+    assert again.status_code == 409
+
+
+def test_an_answer_waiting_for_the_agent_is_202_with_a_location(resident_world):
+    make, question, _ = resident_world
+    client = make(interpret_reply=None)
+    assert client.post(f"/v1/resident/questions/{question.question_id}/answer", json={"reply": ""},
+                       headers=auth(RESIDENT)).status_code == 422
+    r = client.post(f"/v1/resident/questions/{question.question_id}/answer", json={"reply": "not sure"},
+                    headers=auth(RESIDENT))
+    assert r.status_code == 202 and r.json()["status"] == "answered"
+    assert r.headers["location"] == f"/v1/resident/questions/{question.question_id}"
