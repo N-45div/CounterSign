@@ -14,6 +14,9 @@ One table, keyed by `pk` and `sk`:
 
 Frames go to s3://<bucket>/frames/<receipt_id>/<name>, encrypted at rest.
 The bucket is private; frames never leave the house's account.
+
+A namespace goes in front of every partition key, so a second house (the
+Doorstep Lab's) can share the table without seeing the first one's records.
 """
 
 from __future__ import annotations
@@ -39,18 +42,21 @@ def _ts(value: int) -> str:
 
 
 class DynamoStore:
-    def __init__(self, table, s3_client, bucket: str):
+    def __init__(self, table, s3_client, bucket: str, namespace: str = "", frames_prefix: str = "frames/"):
         self.table = table  # a boto3 DynamoDB Table resource
         self.s3 = s3_client
         self.bucket = bucket
+        self.ns = namespace  # the lab's house shares the table under "LAB#", so its questions stay its own
+        self.frames_prefix = frames_prefix
 
     # -- claims --------------------------------------------------------------
 
     def put_claim(self, record: ClaimRecord) -> None:
-        self.table.put_item(Item={"pk": f"CLAIM#{record.claim_id}", "sk": "CLAIM", "data": json.dumps(asdict(record))})
+        self.table.put_item(Item={"pk": self.ns + f"CLAIM#{record.claim_id}", "sk": "CLAIM",
+                                  "data": json.dumps(asdict(record))})
 
     def get_claim(self, claim_id: str) -> ClaimRecord | None:
-        item = self.table.get_item(Key={"pk": f"CLAIM#{claim_id}", "sk": "CLAIM"}).get("Item")
+        item = self.table.get_item(Key={"pk": self.ns + f"CLAIM#{claim_id}", "sk": "CLAIM"}).get("Item")
         if not item:
             return None
         data = json.loads(item["data"])
@@ -62,14 +68,14 @@ class DynamoStore:
     def put_receipt(self, receipt: StoredReceipt) -> None:
         order_sk = f"{_ts(receipt.issued_at_s)}#{receipt.receipt_id}"
         with self.table.batch_writer() as batch:
-            batch.put_item(Item={"pk": f"RECEIPT#{receipt.receipt_id}", "sk": "RECEIPT",
+            batch.put_item(Item={"pk": self.ns + f"RECEIPT#{receipt.receipt_id}", "sk": "RECEIPT",
                                  "data": json.dumps(asdict(receipt))})
-            batch.put_item(Item={"pk": f"ORDER#{receipt.merchant}#{receipt.order_id}", "sk": order_sk,
+            batch.put_item(Item={"pk": self.ns + f"ORDER#{receipt.merchant}#{receipt.order_id}", "sk": order_sk,
                                  "receipt_id": receipt.receipt_id})
-            batch.put_item(Item={"pk": "RECENT", "sk": order_sk, "receipt_id": receipt.receipt_id})
+            batch.put_item(Item={"pk": self.ns + "RECENT", "sk": order_sk, "receipt_id": receipt.receipt_id})
 
     def get_receipt(self, receipt_id: str) -> StoredReceipt | None:
-        item = self.table.get_item(Key={"pk": f"RECEIPT#{receipt_id}", "sk": "RECEIPT"}).get("Item")
+        item = self.table.get_item(Key={"pk": self.ns + f"RECEIPT#{receipt_id}", "sk": "RECEIPT"}).get("Item")
         return StoredReceipt(**json.loads(item["data"])) if item else None
 
     def _receipts_under(self, pk: str, newest_first: bool, limit: int | None) -> list[StoredReceipt]:
@@ -80,20 +86,20 @@ class DynamoStore:
         return [r for r in (self.get_receipt(i) for i in ids) if r is not None]
 
     def receipts_for_order(self, merchant: str, order_id: str) -> list[StoredReceipt]:
-        return self._receipts_under(f"ORDER#{merchant}#{order_id}", newest_first=False, limit=None)
+        return self._receipts_under(self.ns + f"ORDER#{merchant}#{order_id}", newest_first=False, limit=None)
 
     def recent_receipts(self, limit: int = 50) -> list[StoredReceipt]:
-        return self._receipts_under("RECENT", newest_first=True, limit=limit)
+        return self._receipts_under(self.ns + "RECENT", newest_first=True, limit=limit)
 
     # -- frames --------------------------------------------------------------
 
     def put_frames(self, receipt_id: str, frames: dict[str, bytes]) -> None:
         for name, data in frames.items():
-            self.s3.put_object(Bucket=self.bucket, Key=f"frames/{receipt_id}/{name}", Body=data,
+            self.s3.put_object(Bucket=self.bucket, Key=f"{self.frames_prefix}{receipt_id}/{name}", Body=data,
                                ServerSideEncryption="AES256")
 
     def get_frames(self, receipt_id: str) -> dict[str, bytes]:
-        prefix = f"frames/{receipt_id}/"
+        prefix = f"{self.frames_prefix}{receipt_id}/"
         listing = self.s3.list_objects_v2(Bucket=self.bucket, Prefix=prefix).get("Contents", [])
         return {
             obj["Key"][len(prefix):]: self.s3.get_object(Bucket=self.bucket, Key=obj["Key"])["Body"].read()
@@ -103,10 +109,11 @@ class DynamoStore:
     # -- camera online history -----------------------------------------------
 
     def record_status(self, device_id: str, at_ms: int, online: bool) -> None:
-        self.table.put_item(Item={"pk": f"DEVICE#{device_id}", "sk": f"STATUS#{_ts(at_ms)}", "online": online})
+        self.table.put_item(Item={"pk": self.ns + f"DEVICE#{device_id}", "sk": f"STATUS#{_ts(at_ms)}",
+                                  "online": online})
 
     def coverage(self, device_id: str, window: Window, online_now: bool | None) -> Coverage:
-        pk = Key("pk").eq(f"DEVICE#{device_id}")
+        pk = Key("pk").eq(self.ns + f"DEVICE#{device_id}")
         before = self.table.query(
             KeyConditionExpression=pk & Key("sk").between("STATUS#", f"STATUS#{_ts(window.start_ms)}"),
             ScanIndexForward=False, Limit=1,
@@ -122,24 +129,26 @@ class DynamoStore:
 
     def put_question(self, q: Question) -> None:
         with self.table.batch_writer() as batch:
-            batch.put_item(Item={"pk": f"QUESTION#{q.question_id}", "sk": "QUESTION", "data": json.dumps(asdict(q))})
-            batch.put_item(Item={"pk": f"CLAIMQ#{q.claim_id}", "sk": "QUESTION", "question_id": q.question_id})
-        open_key = {"pk": "OPENQ", "sk": f"{_ts(q.asked_at_ms)}#{q.question_id}"}
+            batch.put_item(Item={"pk": self.ns + f"QUESTION#{q.question_id}", "sk": "QUESTION",
+                                 "data": json.dumps(asdict(q))})
+            batch.put_item(Item={"pk": self.ns + f"CLAIMQ#{q.claim_id}", "sk": "QUESTION",
+                                 "question_id": q.question_id})
+        open_key = {"pk": self.ns + "OPENQ", "sk": f"{_ts(q.asked_at_ms)}#{q.question_id}"}
         if q.status == "open":
             self.table.put_item(Item={**open_key, "question_id": q.question_id})
         else:
             self.table.delete_item(Key=open_key)
 
     def get_question(self, question_id: str) -> Question | None:
-        item = self.table.get_item(Key={"pk": f"QUESTION#{question_id}", "sk": "QUESTION"}).get("Item")
+        item = self.table.get_item(Key={"pk": self.ns + f"QUESTION#{question_id}", "sk": "QUESTION"}).get("Item")
         return Question(**json.loads(item["data"])) if item else None
 
     def question_for_claim(self, claim_id: str) -> Question | None:
-        item = self.table.get_item(Key={"pk": f"CLAIMQ#{claim_id}", "sk": "QUESTION"}).get("Item")
+        item = self.table.get_item(Key={"pk": self.ns + f"CLAIMQ#{claim_id}", "sk": "QUESTION"}).get("Item")
         return self.get_question(item["question_id"]) if item else None
 
     def open_questions(self) -> list[Question]:
-        items = self.table.query(KeyConditionExpression=Key("pk").eq("OPENQ")).get("Items", [])
+        items = self.table.query(KeyConditionExpression=Key("pk").eq(self.ns + "OPENQ")).get("Items", [])
         return [q for q in (self.get_question(i["question_id"]) for i in items) if q is not None]
 
     # -- webhook dedupe ------------------------------------------------------
@@ -147,7 +156,8 @@ class DynamoStore:
     def first_sighting(self, request_id: str) -> bool:
         try:
             self.table.put_item(
-                Item={"pk": f"WEBHOOK#{request_id}", "sk": "SEEN", "expires_at": int(time.time()) + WEBHOOK_TTL_S},
+                Item={"pk": self.ns + f"WEBHOOK#{request_id}", "sk": "SEEN",
+                      "expires_at": int(time.time()) + WEBHOOK_TTL_S},
                 ConditionExpression="attribute_not_exists(pk)",
             )
             return True

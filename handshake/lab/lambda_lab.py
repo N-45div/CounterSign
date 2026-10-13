@@ -1,7 +1,8 @@
 """AWS Lambda entry point for the hosted Doorstep Lab (behind a Function URL).
 
-Sessions and the daily Nova budget live in the house's DynamoDB table, lab
-frames and evidence in its S3 bucket, and the lab house's signing key in
+Sessions and the daily Nova budget live in the house's DynamoDB table (the lab
+house's records under LAB#, apart from the real house's), lab frames and
+evidence in its S3 bucket under lab/ (kept for a day), and the lab house's signing key in
 Secrets Manager. The house reaches the Ring emulator through the same
 Function URL the visitor used, with the session's token.
 
@@ -40,7 +41,7 @@ def _app() -> Mangum:
     model = env.get("HANDSHAKE_WITNESS_MODEL") or DEFAULT_MODEL
     app = create_lab(
         sessions=DynamoSessions(table, s3, bucket, int(env.get("HANDSHAKE_LAB_DAILY_RUNS", "300"))),
-        house_store=DynamoStore(table, s3, bucket),
+        house_store=DynamoStore(table, s3, bucket, namespace="LAB#", frames_prefix="lab/evidence/"),
         key=HouseKey.from_pem(secret["signing_key_pem"].encode()),
         webhook_key=secret["webhook_key"],
         nova=lambda: NovaWitness(runtime, model, TextractOcr(textract)),

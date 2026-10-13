@@ -68,3 +68,18 @@ def test_webhook_request_ids_are_seen_once(store):
     assert store.first_sighting("req-1") is True
     assert store.first_sighting("req-1") is False
     assert store.first_sighting("req-2") is True
+
+
+def test_a_namespaced_store_shares_the_table_without_sharing_records(store):
+    from handshake.disputes import Question
+
+    lab = DynamoStore(store.table, store.s3, store.bucket, namespace="LAB#", frames_prefix="lab/evidence/")
+    lab.put_question(Question("q_lab", "clm_lab", "r_lab", "ORD-L", "lab-courier", "Did it arrive?", 1))
+    store.put_question(Question("q_home", "clm_home", "r_home", "ORD-H", "shop", "Did it arrive?", 2))
+    assert [q.question_id for q in lab.open_questions()] == ["q_lab"]
+    assert [q.question_id for q in store.open_questions()] == ["q_home"]
+    assert store.get_question("q_lab") is None and store.question_for_claim("clm_lab") is None
+    lab.put_frames("r_lab", {"before": b"jpg"})
+    keys = [o["Key"] for o in store.s3.list_objects_v2(Bucket=store.bucket)["Contents"]]
+    assert keys == ["lab/evidence/r_lab/before"] and store.get_frames("r_lab") == {}
+    assert lab.get_frames("r_lab") == {"before": b"jpg"}
