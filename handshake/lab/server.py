@@ -13,6 +13,8 @@ for one person and on Lambda for many:
     POST /lab/s/{sid}/claim                 the courier's claim -> verdict + signed receipt
     GET  /lab/s/{sid}/claims/{claim_id}     poll a claim
     GET  /lab/s/{sid}/evidence/{receipt}/{before|after}
+    POST /lab/s/{sid}/claims/{claim_id}/ask           an inconclusive claim goes to the resident
+    POST /lab/s/{sid}/questions/{question_id}/answer  the resident's reply -> signed resolution
     GET  /lab/jwks.json                     the lab house's public keys
     /v1/..., /lab/media/...                 the Ring Partner API emulator (by bearer token)
 
@@ -33,18 +35,21 @@ from fastapi.responses import JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from ..api import _claim_view, _to_ms
+from ..api import _claim_view, _question_view, _to_ms
 from ..desk import ClaimStatus, Desk, InvalidClaim
+from ..dispute_agent import _payload, template_question
+from ..disputes import DisputeError, Disputes
 from ..house import House, HouseConfig
 from ..receipt import HouseKey
 from ..ring import RingClient
-from ..verdict import WitnessReport
+from ..verdict import WitnessReport, device_ref
 from ..webhooks import InvalidWebhook, verified_event
 from .emulator import LabWorld, _err, check_frame, ring_api, send_status_webhooks
 from .scenarios import SCENARIOS
 
 STATIC = Path(__file__).parent / "static"
 MERCHANT = "lab-courier"
+LAB_SALT = "lab-salt"
 
 
 class TruthWitness:
@@ -70,6 +75,10 @@ class ClaimIn(BaseModel):
     carrier: str | None = Field(default=None, max_length=64)
 
 
+class ReplyIn(BaseModel):
+    reply: str = Field(min_length=1, max_length=2000)
+
+
 def create_lab(
     sessions,
     house_store,
@@ -77,9 +86,13 @@ def create_lab(
     webhook_key: str,
     nova: Callable[[], object] | None = None,
     base_url: str | None = None,
+    dispute_agent: Callable[[Disputes], object] | None = None,
+    agent_label: str | None = None,
 ) -> FastAPI:
     """`nova` builds the Nova witness; None means the scenario's ground truth.
-    `base_url` is where the house reaches the emulator; None means the URL the request came in on."""
+    `base_url` is where the house reaches the emulator; None means the URL the request came in on.
+    `dispute_agent` builds the agent that words the resident's question and reads the reply (it shares
+    the daily budget with the witness); None means a template question and nobody to read the reply."""
     app = FastAPI(title="Handshake Doorstep Lab")
 
     def base(request: Request) -> str:
@@ -91,8 +104,21 @@ def create_lab(
         else:
             witness = TruthWitness(world)
         ring = RingClient(sessions.get(sid).token, base_url=base(request))
-        config = HouseConfig("lab-house", f"{base(request)}/lab", world.device.id, "lab-salt")
+        config = HouseConfig("lab-house", f"{base(request)}/lab", world.device.id, LAB_SALT)
         return House(config, ring, witness, key, house_store), witness.model_id
+
+    def session_claim(world: LabWorld, claim_id: str):
+        """A claim this session's camera witnessed: its receipt names this session's device pseudonym."""
+        record = house_store.get_claim(claim_id)
+        if record is None or record.merchant != MERCHANT or not record.token:
+            return None
+        return record if _payload(record.token).get("device") == device_ref(world.device.id, LAB_SALT) else None
+
+    def agent_for(request: Request):
+        disputes = Disputes(house_store, key, f"{base(request)}/lab")
+        if dispute_agent is not None and sessions.take_witness_run():
+            return disputes, dispute_agent(disputes)
+        return disputes, None
 
     def receive_webhook(raw: bytes, signature: str | None) -> dict:
         event = verified_event(webhook_key, raw, signature)
@@ -107,7 +133,7 @@ def create_lab(
     @app.get("/lab/config")
     def config():
         return {"witness": "Amazon Nova on Bedrock + Amazon Textract" if nova else "lab-truth",
-                "scenarios": list(SCENARIOS)}
+                "dispute_agent": agent_label if dispute_agent else None, "scenarios": list(SCENARIOS)}
 
     @app.get("/lab/scenarios")
     def scenarios():
@@ -173,6 +199,39 @@ def create_lab(
         if kind not in frames:
             return _err(404, "NOT_FOUND", "no such frame")
         return Response(frames[kind], media_type="image/jpeg", headers={"Cache-Control": "private, max-age=3600"})
+
+    @app.post("/lab/s/{sid}/claims/{claim_id}/ask")
+    def ask(sid: str, claim_id: str, request: Request):
+        world = sessions.world(sid)
+        record = session_claim(world, claim_id) if world is not None else None
+        if record is None:
+            return _err(404, "NOT_FOUND", "no such claim in this session")
+        if record.verdict != "inconclusive":
+            return _err(409, "NOT_INCONCLUSIVE", "only claims the camera could not settle go to the resident")
+        disputes, agent = agent_for(request)
+        if agent is not None:
+            question, by_model = agent.ask(record)
+        else:
+            question, by_model = disputes.open(record, template_question(record)), False
+        return {**_question_view(question), "asked_by": agent.model_id if by_model else "template",
+                "agent": agent_label if agent is not None else None}
+
+    @app.post("/lab/s/{sid}/questions/{question_id}/answer")
+    def answer(sid: str, question_id: str, body: ReplyIn, request: Request):
+        world = sessions.world(sid)
+        question = house_store.get_question(question_id)
+        if world is None or question is None or session_claim(world, question.claim_id) is None:
+            return _err(404, "NOT_FOUND", "no such question in this session")
+        if question.status != "open":
+            return _err(409, "ALREADY_ANSWERED", "this question has already been answered")
+        disputes, agent = agent_for(request)
+        try:
+            question = disputes.answer(question_id, body.reply)
+        except DisputeError as exc:
+            return _err(422, "INVALID_REPLY", str(exc))
+        if agent is not None:
+            question = agent.interpret(question_id)
+        return {**_question_view(question), "agent": agent_label if agent is not None else None}
 
     @app.get("/lab/jwks.json")
     @app.get("/.well-known/jwks.json")

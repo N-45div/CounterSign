@@ -8,19 +8,19 @@ import requests
 import uvicorn
 from moto import mock_aws
 
+from handshake.dispute_agent import RemoteDisputeAgent
 from handshake.lab.server import create_lab
 from handshake.lab.sessions import DynamoSessions, MemorySessions
 from handshake.receipt import HouseKey, verify
 from handshake.store import MemoryStore
 
 
-@pytest.fixture(scope="module")
-def lab_url():
+def serve_lab(**options):
     with socket.socket() as s:
         s.bind(("127.0.0.1", 0))
         port = s.getsockname()[1]
     base = f"http://127.0.0.1:{port}"
-    app = create_lab(MemorySessions(), MemoryStore(), HouseKey.generate(), "lab-webhook-key", None, base)
+    app = create_lab(MemorySessions(), MemoryStore(), HouseKey.generate(), "lab-webhook-key", None, base, **options)
     server = uvicorn.Server(uvicorn.Config(app, host="127.0.0.1", port=port, log_level="warning"))
     thread = threading.Thread(target=server.run, daemon=True)
     thread.start()
@@ -32,13 +32,45 @@ def lab_url():
     thread.join(timeout=5)
 
 
+@pytest.fixture(scope="module")
+def lab_url():
+    yield from serve_lab()
+
+
+def fake_agent(disputes):
+    """The dispute agent's proposals without a model: a fixed question, and the reply's first words quoted."""
+    def invoke(payload):
+        if payload["task"] == "question":
+            return {"question": f"Did your {payload['facts']['carrier']} parcel for {payload['facts']['order_id']} arrive?"}
+        reply = payload["exchange"]["reply"]
+        outcome = "not_received" if reply.lower().startswith("no") else "received"
+        return {"interpretation": {"outcome": outcome, "quote": " ".join(reply.split()[:3]), "note": ""}}
+
+    return RemoteDisputeAgent(invoke, disputes, "fake-agent")
+
+
+@pytest.fixture(scope="module")
+def agent_lab_url():
+    yield from serve_lab(dispute_agent=fake_agent, agent_label="Strands on AgentCore Runtime")
+
+
 def start(base, scenario):
     return requests.post(f"{base}/lab/start", json={"scenario": scenario}, timeout=30).json()
 
 
 def claim(base, tl, order):
     return requests.post(f"{base}/lab/s/{tl['session']}/claim",
-                         json={"order_id": order, "claimed_at": tl["claim_at_ms"]}, timeout=60).json()
+                         json={"order_id": order, "claimed_at": tl["claim_at_ms"], "carrier": "Lab Courier"},
+                         timeout=60).json()
+
+
+def ask(base, tl, claim_id):
+    return requests.post(f"{base}/lab/s/{tl['session']}/claims/{claim_id}/ask", timeout=30)
+
+
+def reply(base, tl, question_id, text):
+    return requests.post(f"{base}/lab/s/{tl['session']}/questions/{question_id}/answer", json={"reply": text},
+                         timeout=30)
 
 
 def test_a_session_runs_end_to_end_with_evidence_and_a_verifiable_receipt(lab_url):
@@ -126,3 +158,41 @@ def test_the_daily_nova_budget_runs_out(aws):
     table, s3 = aws
     sessions = DynamoSessions(table, s3, "frames", daily_witness_runs=2)
     assert [sessions.take_witness_run() for _ in range(3)] == [True, True, False]
+
+
+def test_an_offline_camera_goes_to_the_resident_and_comes_back_signed(agent_lab_url):
+    assert requests.get(f"{agent_lab_url}/lab/config", timeout=10).json()["dispute_agent"] == \
+        "Strands on AgentCore Runtime"
+    tl = start(agent_lab_url, "camera_offline")
+    receipt = claim(agent_lab_url, tl, "ORD-off")
+    assert receipt["verdict"] == "inconclusive"
+    q = ask(agent_lab_url, tl, receipt["claim_id"]).json()
+    assert q["text"] == "Did your Lab Courier parcel for ORD-off arrive?" and q["asked_by"] == "fake-agent"
+    assert ask(agent_lab_url, tl, receipt["claim_id"]).json()["question_id"] == q["question_id"]  # one per claim
+
+    done = reply(agent_lab_url, tl, q["question_id"], "haan mil gaya, guard ke paas tha").json()
+    assert done["status"] == "resolved" and done["outcome"] == "received" and done["quote"] == "haan mil gaya,"
+    body = verify(done["resolution"], requests.get(f"{agent_lab_url}/lab/jwks.json", timeout=10).json())
+    assert body["kind"] == "resolution" and body["resolves"] == receipt["receipt_id"]
+    assert reply(agent_lab_url, tl, q["question_id"], "no").status_code == 409
+
+
+def test_only_this_sessions_inconclusive_claims_go_to_the_resident(agent_lab_url):
+    honest = start(agent_lab_url, "honest_delivery")
+    delivered = claim(agent_lab_url, honest, "ORD-ok")
+    assert ask(agent_lab_url, honest, delivered["claim_id"]).status_code == 409
+    offline = start(agent_lab_url, "camera_offline")
+    mine = claim(agent_lab_url, offline, "ORD-mine")
+    assert ask(agent_lab_url, honest, mine["claim_id"]).status_code == 404  # another visitor's claim
+    q = ask(agent_lab_url, offline, mine["claim_id"]).json()
+    assert reply(agent_lab_url, honest, q["question_id"], "no").status_code == 404
+    assert reply(agent_lab_url, offline, q["question_id"], "").status_code == 422
+
+
+def test_without_an_agent_the_question_is_a_template_and_the_reply_waits(lab_url):
+    tl = start(lab_url, "camera_offline")
+    receipt = claim(lab_url, tl, "ORD-t")
+    q = ask(lab_url, tl, receipt["claim_id"]).json()
+    assert q["asked_by"] == "template" and q["text"].startswith("Did your Lab Courier parcel from lab-courier")
+    waiting = reply(lab_url, tl, q["question_id"], "yes it came").json()
+    assert waiting["status"] == "answered" and waiting["agent"] is None
