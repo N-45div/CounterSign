@@ -1,17 +1,22 @@
 """The dispute agent: a Strands agent on Amazon Nova that talks to the resident.
 
-Two short jobs, each with narrow tools:
+Two short jobs, each a pure proposal with narrow tools:
 
-* ask: read what the camera established about an inconclusive claim, then
-  send the resident one plain question (ask_resident, once).
-* interpret: read the resident's free-text reply, in whatever language they
-  wrote it, and record an outcome with a quote of their own words
-  (record_interpretation). The house refuses a quote the resident did not
-  write, and the agent can try again.
+* propose_question(facts): read what the camera established about an
+  inconclusive claim and propose one plain question for the resident.
+* propose_interpretation(exchange): read the resident's free-text reply, in
+  whatever language they wrote it, and propose an outcome with a quote of
+  their own words. The tool refuses a quote the resident did not write, and
+  the agent can try again.
 
-The model words and reads; it never signs. Resolutions are issued by
-disputes.py from a checked (outcome, quote) pair. If the model does not ask,
-a plain template question goes out, so a claim is never stuck on it.
+The proposals take facts in and give text out: no store, no signing key. That
+is what runs on Amazon Bedrock AgentCore Runtime (agentcore/app.py). The house
+applies a proposal through disputes.py, which checks it again and signs. If
+the model does not propose a question, a plain template question goes out, so
+a claim is never stuck on it.
+
+    DisputeAgent        proposals run in this process (lab, tests, local)
+    RemoteDisputeAgent  proposals run on AgentCore Runtime (deployed house)
 """
 
 from __future__ import annotations
@@ -19,10 +24,11 @@ from __future__ import annotations
 import base64
 import json
 from datetime import datetime, timezone
+from typing import Callable
 
 from strands import Agent, tool
 
-from .disputes import Disputes, DisputeError, Outcome, Question
+from .disputes import Disputes, DisputeError, Outcome, Question, _normalise
 
 REASON_TEXT = {
     "camera_not_recording": "the camera was offline for part of the delivery window",
@@ -70,104 +76,184 @@ def template_question(claim) -> str:
     return f"Did your {who}parcel from {claim.merchant} (order {claim.order_id}) arrive on {_day(claim.claimed_at_ms)}?"
 
 
-class DisputeAgent:
-    def __init__(self, model, disputes: Disputes, model_id: str, language: str = "English"):
-        self.model = model  # a Strands model, e.g. BedrockModel(model_id="us.amazon.nova-2-lite-v1:0")
-        self.disputes = disputes
-        self.model_id = model_id
-        self.language = language
+def claim_facts_for(claim) -> dict:
+    """What the agent may know about a claim: no Ring ids, no frames, no keys."""
+    visit = _payload(claim.token).get("visit") if claim.token else None
+    return {
+        "merchant": claim.merchant,
+        "carrier": claim.carrier,
+        "order_id": claim.order_id,
+        "claimed_delivered_on": _day(claim.claimed_at_ms),
+        "why_the_camera_could_not_settle_it": REASON_TEXT.get(claim.reason, claim.reason),
+        "someone_came_to_the_door": visit is not None,
+    }
 
-    # -- ask -----------------------------------------------------------------
 
-    def ask_tools(self, claim, sent: dict):
-        receipt = _payload(claim.token)
+def exchange_for(question: Question) -> dict:
+    return {"question": question.text, "reply": question.reply, "merchant": question.merchant,
+            "order_id": question.order_id}
 
-        @tool
-        def claim_facts() -> dict:
-            """What the merchant claims and what the doorbell camera established about it."""
-            visit = receipt.get("visit")
-            return {
-                "merchant": claim.merchant,
-                "carrier": claim.carrier,
-                "order_id": claim.order_id,
-                "claimed_delivered_on": _day(claim.claimed_at_ms),
-                "why_the_camera_could_not_settle_it": REASON_TEXT.get(claim.reason, claim.reason),
-                "someone_came_to_the_door": visit is not None,
-            }
 
-        @tool
-        def ask_resident(question: str) -> str:
-            """Send one question to the resident. Call this exactly once.
+# -- proposals (pure: facts in, text out) -----------------------------------------
 
-            Args:
-                question: the question, at most 200 characters
-            """
-            if "question" in sent:
-                return "Already sent; do not ask again."
-            try:
-                sent["question"] = self.disputes.open(claim, question[:200])
-            except DisputeError as exc:
-                return f"Refused: {exc}"
-            return f"Sent as {sent['question'].question_id}."
 
-        return [claim_facts, ask_resident]
+def question_tools(facts: dict, out: dict):
+    @tool
+    def claim_facts() -> dict:
+        """What the merchant claims and what the doorbell camera established about it."""
+        return facts
+
+    @tool
+    def ask_resident(question: str) -> str:
+        """Send one question to the resident. Call this exactly once.
+
+        Args:
+            question: the question, at most 200 characters
+        """
+        if "question" in out:
+            return "Already sent; do not ask again."
+        text = " ".join((question or "").split())[:200]
+        if not text:
+            return "Refused: the question is empty."
+        out["question"] = text
+        return "Sent."
+
+    return [claim_facts, ask_resident]
+
+
+def interpretation_tools(exchange: dict, out: dict):
+    @tool
+    def the_exchange() -> dict:
+        """The question the resident was asked, and their reply exactly as written."""
+        return exchange
+
+    @tool
+    def record_interpretation(outcome: str, quote: str, note: str = "") -> str:
+        """Record what the reply says. Call once; retry only if refused.
+
+        Args:
+            outcome: received, not_received or unsure
+            quote: the exact words from the reply that show the outcome, copied character for character
+            note: a few English words on any detail that matters
+        """
+        out["attempts"] = out.get("attempts", 0) + 1
+        if out["attempts"] > 3:
+            return "Too many attempts; stop."
+        if outcome not in {o.value for o in Outcome}:
+            return f"Refused: outcome must be one of {[o.value for o in Outcome]}."
+        if not quote or _normalise(quote) not in _normalise(exchange.get("reply") or ""):
+            return "Refused: the quote must be words the resident actually wrote."
+        out["interpretation"] = {"outcome": outcome, "quote": quote.strip(), "note": (note or "")[:300]}
+        return f"Recorded {outcome}."
+
+    return [the_exchange, record_interpretation]
+
+
+def propose_question(model, facts: dict, language: str = "English") -> str | None:
+    out: dict = {}
+    try:
+        Agent(model=model, tools=question_tools(facts, out), system_prompt=ASK_PROMPT.format(language=language),
+              callback_handler=None)("Ask the resident about this claim.")
+    except Exception:  # a model outage must not take the claim down with it
+        return None
+    return out.get("question")
+
+
+def propose_interpretation(model, exchange: dict) -> dict | None:
+    out: dict = {}
+    try:
+        Agent(model=model, tools=interpretation_tools(exchange, out), system_prompt=INTERPRET_PROMPT,
+              callback_handler=None)("Interpret the resident's reply.")
+    except Exception:
+        return None
+    return out.get("interpretation")
+
+
+# -- applying proposals in the house ---------------------------------------------
+
+
+class _Applies:
+    disputes: Disputes
+    model_id: str
+
+    def _question(self, facts: dict) -> str | None: ...  # pragma: no cover
+    def _interpretation(self, exchange: dict) -> dict | None: ...  # pragma: no cover
 
     def ask(self, claim) -> tuple[Question, bool]:
         """(question, asked_by_model). Falls back to a template so a claim never stalls."""
         existing = self.disputes.store.question_for_claim(claim.claim_id)
         if existing is not None:
             return existing, False
-        sent: dict = {}
-        try:
-            agent = Agent(model=self.model, tools=self.ask_tools(claim, sent),
-                          system_prompt=ASK_PROMPT.format(language=self.language), callback_handler=None)
-            agent("Ask the resident about this claim.")
-        except Exception:  # a model outage must not leave the claim without a question
-            pass
-        if "question" in sent:
-            return sent["question"], True
+        proposed = self._question(claim_facts_for(claim))
+        if proposed:
+            try:
+                return self.disputes.open(claim, proposed), True
+            except DisputeError:
+                pass
         return self.disputes.open(claim, template_question(claim)), False
 
-    # -- interpret -------------------------------------------------------------
-
-    def interpret_tools(self, question: Question, done: dict):
-        @tool
-        def the_exchange() -> dict:
-            """The question the resident was asked, and their reply exactly as written."""
-            return {"question": question.text, "reply": question.reply,
-                    "merchant": question.merchant, "order_id": question.order_id}
-
-        @tool
-        def record_interpretation(outcome: str, quote: str, note: str = "") -> str:
-            """Record what the reply says. Call once; retry only if refused.
-
-            Args:
-                outcome: received, not_received or unsure
-                quote: the exact words from the reply that show the outcome, copied character for character
-                note: a few English words on any detail that matters
-            """
-            attempts = done.setdefault("attempts", 0) + 1
-            done["attempts"] = attempts
-            if attempts > 3:
-                return "Too many attempts; stop."
-            try:
-                done["question"] = self.disputes.resolve(question.question_id, outcome, quote, self.model_id, note)
-            except DisputeError as exc:
-                return f"Refused: {exc}. Valid outcomes: {[o.value for o in Outcome]}."
-            return f"Recorded {outcome}."
-
-        return [the_exchange, record_interpretation]
-
     def interpret(self, question_id: str) -> Question:
-        """Resolve an answered question. Returns it unresolved if the model could not back an outcome."""
+        """Resolve an answered question. Left answered when no outcome could be backed by a quote."""
         question = self.disputes.store.get_question(question_id)
         if question is None or question.status != "answered":
             return question
-        done: dict = {}
+        proposal = self._interpretation(exchange_for(question))
+        if not proposal:
+            return question
         try:
-            agent = Agent(model=self.model, tools=self.interpret_tools(question, done),
-                          system_prompt=INTERPRET_PROMPT, callback_handler=None)
-            agent("Interpret the resident's reply.")
+            return self.disputes.resolve(question_id, proposal["outcome"], proposal["quote"], self.model_id,
+                                         proposal.get("note", ""))
+        except (DisputeError, KeyError):  # checked again here: the house never trusts the proposal
+            return question
+
+
+class DisputeAgent(_Applies):
+    """Proposals run in this process."""
+
+    def __init__(self, model, disputes: Disputes, model_id: str, language: str = "English"):
+        self.model = model  # a Strands model, e.g. BedrockModel(model_id="us.amazon.nova-2-lite-v1:0")
+        self.disputes = disputes
+        self.model_id = model_id
+        self.language = language
+
+    def _question(self, facts):
+        return propose_question(self.model, facts, self.language)
+
+    def _interpretation(self, exchange):
+        return propose_interpretation(self.model, exchange)
+
+
+class RemoteDisputeAgent(_Applies):
+    """Proposals run on Amazon Bedrock AgentCore Runtime; this side only applies them."""
+
+    def __init__(self, invoke: Callable[[dict], dict], disputes: Disputes, model_id: str, language: str = "English"):
+        self.invoke = invoke  # payload -> response, e.g. agentcore_invoker(client, runtime_arn)
+        self.disputes = disputes
+        self.model_id = model_id
+        self.language = language
+
+    def _question(self, facts):
+        try:
+            return self.invoke({"task": "question", "facts": facts, "language": self.language}).get("question")
         except Exception:
-            pass
-        return done.get("question") or self.disputes.store.get_question(question_id)
+            return None
+
+    def _interpretation(self, exchange):
+        try:
+            return self.invoke({"task": "interpret", "exchange": exchange}).get("interpretation")
+        except Exception:
+            return None
+
+
+def agentcore_invoker(client, runtime_arn: str) -> Callable[[dict], dict]:
+    """Call the deployed agent through bedrock-agentcore InvokeAgentRuntime."""
+    import uuid
+
+    def invoke(payload: dict) -> dict:
+        resp = client.invoke_agent_runtime(agentRuntimeArn=runtime_arn, runtimeSessionId=uuid.uuid4().hex * 2,
+                                           payload=json.dumps(payload).encode(), contentType="application/json",
+                                           accept="application/json")
+        body = resp["response"].read() if hasattr(resp.get("response"), "read") else resp.get("response", b"")
+        return json.loads(body or b"{}")
+
+    return invoke

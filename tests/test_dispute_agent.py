@@ -1,7 +1,8 @@
 import json
 
 from handshake.desk import ClaimRecord, ClaimStatus
-from handshake.dispute_agent import DisputeAgent, template_question
+from handshake.dispute_agent import (DisputeAgent, RemoteDisputeAgent, claim_facts_for, exchange_for,
+                                     interpretation_tools, question_tools, template_question)
 from handshake.disputes import Disputes
 from handshake.receipt import HouseKey, issue
 from handshake.store import MemoryStore
@@ -10,73 +11,108 @@ KEY = HouseKey.generate()
 T = 1_791_000_000_000
 
 
-def claim():
+def claim(claim_id="clm_1", receipt_id="r1"):
     body = {"verdict": "inconclusive", "reason": "camera_not_recording", "visit": None,
             "device": "pseudonym", "evidence": []}
-    token = issue(KEY, body, issuer="https://h", issued_at_s=T // 1000, receipt_id="r1")
-    return ClaimRecord("clm_1", "Meesho", "ORD-402", T, T, carrier="Delhivery", status=ClaimStatus.ISSUED,
-                       receipt_id="r1", verdict="inconclusive", reason="camera_not_recording", token=token)
+    token = issue(KEY, body, issuer="https://h", issued_at_s=T // 1000, receipt_id=receipt_id)
+    return ClaimRecord(claim_id, "Meesho", "ORD-402", T, T, carrier="Delhivery", status=ClaimStatus.ISSUED,
+                       receipt_id=receipt_id, verdict="inconclusive", reason="camera_not_recording", token=token)
 
 
 class BrokenModel:
     """Stands in for Bedrock being down."""
 
 
-def agent():
-    return DisputeAgent(BrokenModel(), Disputes(MemoryStore(), KEY, "https://h"), "us.amazon.nova-2-lite-v1:0")
+def disputes():
+    return Disputes(MemoryStore(), KEY, "https://h")
 
 
 def test_claim_facts_carry_no_ring_ids_or_frames():
-    a = agent()
-    facts_tool, _ = a.ask_tools(claim(), {})
-    facts = facts_tool()
+    facts = claim_facts_for(claim())
     assert facts["merchant"] == "Meesho" and facts["order_id"] == "ORD-402"
     assert "offline" in facts["why_the_camera_could_not_settle_it"]
     assert facts["someone_came_to_the_door"] is False
     assert "ava1.ring" not in json.dumps(facts) and "pseudonym" not in json.dumps(facts)
 
 
-def test_ask_resident_sends_once():
-    a = agent()
-    sent = {}
-    _, ask = a.ask_tools(claim(), sent)
-    assert ask("Did your Delhivery parcel from Meesho (order ORD-402) arrive on Monday?").startswith("Sent as")
+def test_ask_resident_takes_one_question():
+    out = {}
+    _, ask = question_tools(claim_facts_for(claim()), out)
+    assert ask("Did your Delhivery parcel from Meesho (order ORD-402) arrive on Monday?") == "Sent."
     assert ask("And another?") == "Already sent; do not ask again."
-    assert a.disputes.store.open_questions()[0].text.startswith("Did your Delhivery parcel")
+    assert out["question"].startswith("Did your Delhivery parcel")
 
 
 def test_a_model_outage_still_asks_with_the_template():
-    a = agent()
-    q, by_model = a.ask(claim())
+    q, by_model = DisputeAgent(BrokenModel(), disputes(), "m").ask(claim())
     assert not by_model and q.text == template_question(claim())
     assert "Delhivery" in q.text and "ORD-402" in q.text and "Meesho" in q.text
 
 
-def test_record_interpretation_refuses_invented_quotes_and_stops_after_three():
-    a = agent()
-    q, _ = a.ask(claim())
-    a.disputes.answer(q.question_id, "haan mil gaya, guard ke paas tha")
-    done = {}
-    _, record = a.interpret_tools(a.disputes.store.get_question(q.question_id), done)
+def test_the_interpretation_tool_refuses_invented_quotes_and_stops_after_three():
+    exchange = {"question": "Did it arrive?", "reply": "haan mil gaya, guard ke paas tha"}
+    out = {}
+    _, record = interpretation_tools(exchange, out)
     assert record("received", "yes I got it").startswith("Refused")
+    assert record("maybe", "mil gaya").startswith("Refused")
     assert record("received", "haan mil gaya", "left with the guard") == "Recorded received."
-    assert done["question"].status == "resolved" and done["question"].note == "left with the guard"
+    assert out["interpretation"] == {"outcome": "received", "quote": "haan mil gaya", "note": "left with the guard"}
+    assert record("received", "x") == "Too many attempts; stop."
 
 
-def test_interpret_leaves_the_question_answered_when_the_model_is_down():
-    a = agent()
-    q, _ = a.ask(claim())
-    a.disputes.answer(q.question_id, "not sure, I was out")
-    assert a.interpret(q.question_id).status == "answered"
+class Proposing(DisputeAgent):
+    """Skips the model: returns a fixed proposal, to test how the house applies it."""
+
+    def __init__(self, d, question=None, interpretation=None):
+        super().__init__(BrokenModel(), d, "m")
+        self.q, self.i = question, interpretation
+
+    def _question(self, facts):
+        return self.q
+
+    def _interpretation(self, exchange):
+        return self.i
 
 
-def test_the_agent_gets_three_tries_at_a_quote():
-    a = agent()
-    q, _ = a.ask(claim())
-    a.disputes.answer(q.question_id, "nothing came")
-    done = {}
-    _, record = a.interpret_tools(a.disputes.store.get_question(q.question_id), done)
-    results = [record("not_received", f"invented {i}") for i in range(4)]
-    assert all(r.startswith("Refused") for r in results[:3])
-    assert results[3] == "Too many attempts; stop."
-    assert a.disputes.store.get_question(q.question_id).status == "answered"
+def test_the_house_rechecks_a_proposal_before_signing():
+    d = disputes()
+    agent = Proposing(d, question="Did your Meesho parcel arrive?",
+                      interpretation={"outcome": "received", "quote": "words nobody wrote"})
+    q, by_model = agent.ask(claim())
+    assert by_model and q.text == "Did your Meesho parcel arrive?"
+    d.answer(q.question_id, "nothing came")
+    assert agent.interpret(q.question_id).status == "answered"  # refused by disputes.py, never signed
+    agent.i = {"outcome": "not_received", "quote": "nothing came", "note": ""}
+    done = agent.interpret(q.question_id)
+    assert done.status == "resolved" and done.outcome == "not_received"
+
+
+def test_remote_agent_applies_agentcore_proposals_and_survives_an_outage():
+    calls = []
+
+    def invoke(payload):
+        calls.append(payload["task"])
+        if payload["task"] == "question":
+            return {"question": "Did your Delhivery parcel for ORD-402 arrive?"}
+        return {"interpretation": {"outcome": "received", "quote": payload["exchange"]["reply"], "note": ""}}
+
+    d = disputes()
+    remote = RemoteDisputeAgent(invoke, d, "us.amazon.nova-2-lite-v1:0")
+    q, by_model = remote.ask(claim())
+    assert by_model and calls == ["question"]
+    d.answer(q.question_id, "yes it came")
+    assert remote.interpret(q.question_id).outcome == "received"
+
+    def down(payload):
+        raise ConnectionError("AgentCore unavailable")
+
+    other = claim("clm_2", "r2")
+    q2, by_model2 = RemoteDisputeAgent(down, d, "m").ask(other)
+    assert not by_model2 and q2.text == template_question(other)
+
+
+def test_exchange_carries_only_the_question_and_reply():
+    d = disputes()
+    q = d.open(claim(), "Did it arrive?")
+    d.answer(q.question_id, "yes")
+    assert set(exchange_for(d.store.get_question(q.question_id))) == {"question", "reply", "merchant", "order_id"}
