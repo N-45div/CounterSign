@@ -7,11 +7,15 @@ claim window to close. So the desk records the claim, tries once, and if
 the house says "not ready" it schedules another attempt for the moment the
 house named. A scheduler (SQS when deployed) brings the claim back; a merchant
 polling for it also nudges it along if an attempt is due.
+
+When a receipt is issued the desk calls on_issued once, which is how an
+inconclusive claim reaches the resident (disputes.py).
 """
 
 from __future__ import annotations
 
 import hashlib
+import logging
 import time
 from dataclasses import dataclass, replace
 from enum import StrEnum
@@ -26,6 +30,8 @@ TOKEN_RETRY_MS = 5 * MINUTE  # waiting for the resident to refresh the Ring toke
 ERROR_RETRY_MS = 2 * MINUTE
 FUTURE_SLACK_MS = 5 * MINUTE  # clocks drift; claims a little in the future are fine
 MAX_CLAIM_AGE_MS = 30 * 24 * 60 * MINUTE
+
+log = logging.getLogger(__name__)
 
 
 class ClaimStatus(StrEnum):
@@ -87,8 +93,10 @@ class Desk:
         store: ClaimStore,
         scheduler: Scheduler | None = None,
         clock_ms: Callable[[], int] = lambda: int(time.time() * 1000),
+        on_issued: Callable[[ClaimRecord], None] | None = None,
     ):
         self.house = house
+        self.on_issued = on_issued
         self.store = store
         self.scheduler = scheduler or PollingScheduler()
         self._now = clock_ms
@@ -143,6 +151,11 @@ class Desk:
             receipt_id=issued.receipt_id, verdict=issued.verdict.value, reason=issued.reason, token=issued.token,
         )
         self.store.put_claim(record)
+        if self.on_issued is not None:
+            try:
+                self.on_issued(record)
+            except Exception:  # a follow-up must never undo a signed receipt
+                log.exception("on_issued failed for %s", claim_id)
         return record
 
     def _later(self, record: ClaimRecord, retry_at_ms: int, error: str | None) -> ClaimRecord:

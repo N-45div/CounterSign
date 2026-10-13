@@ -143,3 +143,20 @@ def test_bad_claims_are_refused(order_id, claimed_at, message):
     d, _, _, _ = desk(FakeRing(), T0)
     with pytest.raises(InvalidClaim, match=message):
         d.submit("shop", order_id, claimed_at)
+
+
+def test_on_issued_runs_once_and_cannot_undo_the_receipt():
+    d, clock, _, _ = desk(FakeRing(), T0 + 60_000)
+    seen = []
+
+    def hook(record):
+        seen.append(record.verdict)
+        raise ConnectionError("queue down")
+
+    d.on_issued = hook
+    record = d.submit("shop", "ORD-5", T0 + 60_000)
+    clock.now = record.retry_at_ms
+    issued = d.attempt(record.claim_id)
+    assert issued.status is ClaimStatus.ISSUED and d.store.get_claim(record.claim_id).token == issued.token
+    d.attempt(record.claim_id)
+    assert seen == ["delivered"]
