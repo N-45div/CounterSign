@@ -30,21 +30,19 @@ Ordinary notes ("Please leave parcels with the guard") flagged as attacks: 0 of 
 ## How it works
 
 ```mermaid
-flowchart LR
+flowchart TB
     M["Merchant or courier"] -->|"POST /v1/claims"| API
     subgraph HOUSE["The house: one AWS account"]
         API["House API<br/>Lambda Function URL"] --> DESK["Desk<br/>SQS retries until Ring has settled"]
-        DESK --> WIT["Witness<br/>Textract + Doorman rules + Nova 2 Lite"]
+        DESK --> WIT["Witness<br/>Textract + Doorman rules<br/>+ Nova 2 Lite"]
         WIT --> RULES["Rules decide<br/>Ed25519 signs"]
-        RULES -->|inconclusive| DIS["Disputes<br/>checks the quote, signs the resolution"]
+        RULES -->|inconclusive| DIS["Disputes<br/>checks the quote<br/>signs the resolution"]
     end
-    DESK -->|"motion history"| RING["Ring Partner API"]
-    WIT -->|"snapshots before and after"| RING
-    RING -->|"online and offline webhooks"| API
-    RULES -->|"signed receipt"| M
+    RING["Ring Partner API<br/>motion history, snapshots,<br/>online and offline webhooks"] <-.-> HOUSE
+    RULES -->|"signed receipt"| OUT["Merchant: receipt"]
     DIS <-->|"facts in, proposal out"| AGENT["Dispute agent<br/>Strands + Nova 2 Lite<br/>on AgentCore Runtime, no keys"]
     DIS <-->|"one question, their reply"| RES["Resident"]
-    DIS -->|"signed resolution"| M
+    DIS -->|"signed resolution"| OUT2["Merchant: resolution"]
 ```
 
 1. **Claim.** A merchant posts `{order_id, claimed_at, carrier}` with its API key. The desk answers `202` with `Retry-After` and keeps trying (SQS delivery delays) until Ring has filed its events and the claim window, 20 minutes before to 10 minutes after the claim, has closed. Resubmitting the same claim returns the same claim.
