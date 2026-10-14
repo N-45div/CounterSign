@@ -30,6 +30,8 @@ SYSTEM = (
 
 # Asking where the parcel is turns "is there a parcel?" into something checkable:
 # a new sign on the door was reported as "a yellow package added to the door".
+# It is a list, every place the model sees one: asked for a single place, Nova 2
+# Lite put a real parcel under a note "on the door or wall" six times out of six.
 LOCATIONS = ["on the ground in front of the door", "on the door or wall", "held by a person", "none"]
 
 TOOL = {
@@ -43,15 +45,16 @@ TOOL = {
                                    "description": "An object is left on the ground at the door in BEFORE (vehicles and text do not count)."},
                 "package_after": {"type": "string", "enum": ["yes", "no", "unclear"],
                                   "description": "An object is left on the ground at the door in AFTER (vehicles and text do not count)."},
-                "package_location": {"type": "string", "enum": LOCATIONS,
-                                     "description": "Where the object you counted in AFTER is."},
+                "package_locations": {"type": "array", "items": {"type": "string", "enum": LOCATIONS},
+                                      "description": "Every place in AFTER where an object you counted is. "
+                                                     "['none'] if there is none."},
                 "same_scene": {"type": "boolean", "description": "Both frames show the same doorstep view."},
                 "confidence": {"type": "number", "description": "0 to 1, how sure you are of both answers."},
                 "visible_text": {"type": "array", "items": {"type": "string"},
                                  "description": "Every piece of text you can read in either frame, verbatim."},
                 "description": {"type": "string", "description": "One short sentence on what changed."},
             },
-            "required": ["package_before", "package_after", "package_location", "same_scene", "confidence",
+            "required": ["package_before", "package_after", "package_locations", "same_scene", "confidence",
                          "visible_text"],
         }},
     }
@@ -63,9 +66,10 @@ _ANSWER = {"yes": True, "no": False}
 def _parcel_after(answer: dict) -> bool | None:
     """The model's AFTER answer, kept only for an object on the ground at the door."""
     seen = _ANSWER.get(str(answer.get("package_after")).lower())
-    where = str(answer.get("package_location", "")).lower()
-    if seen is True and where and not where.startswith("on the ground"):
-        return None if where.startswith("held") else False  # a sign on the door is not a delivery
+    places = answer.get("package_locations")
+    places = [str(p).lower() for p in places] if isinstance(places, list) else []
+    if seen is True and places and not any(p.startswith("on the ground") for p in places):
+        return None if any(p.startswith("held") for p in places) else False  # a sign on the door is not a delivery
     return seen
 
 

@@ -32,7 +32,7 @@ class FakeOcr:
 
 
 def answer(**overrides):
-    base = {"package_before": "no", "package_after": "yes", "package_location": "on the ground in front of the door",
+    base = {"package_before": "no", "package_after": "yes", "package_locations": ["on the ground in front of the door"],
             "same_scene": True, "confidence": 0.92,
             "visible_text": ["FRAGILE"], "description": "A brown box appeared on the mat."}
     return {**base, **overrides}
@@ -177,15 +177,21 @@ def test_text_dependent_answers_are_never_a_delivery():
 
 
 def test_a_parcel_must_be_on_the_ground():
-    on_door = compare(FakeBedrock(answer(package_location="on the door or wall")))
+    on_door = compare(FakeBedrock(answer(package_locations=["on the door or wall"])))
     assert on_door.package_after is False  # a sign or a wreath on the door is not a delivery
-    held = compare(FakeBedrock(answer(package_location="held by a person")))
+    held = compare(FakeBedrock(answer(package_locations=["held by a person"])))
     assert held.package_after is None  # someone is still holding it: cannot tell
     assert compare(FakeBedrock(answer())).package_after is True
+
+
+def test_a_parcel_under_a_note_on_the_door_still_counts():
+    both = compare(FakeBedrock(answer(package_locations=["on the door or wall", "on the ground in front of the door"])))
+    assert both.package_after is True
 
 
 def test_the_request_asks_where_the_parcel_is():
     bedrock = FakeBedrock(answer())
     compare(bedrock)
     schema = bedrock.requests[0]["toolConfig"]["tools"][0]["toolSpec"]["inputSchema"]["json"]
-    assert "package_location" in schema["required"]
+    assert "package_locations" in schema["required"]
+    assert schema["properties"]["package_locations"]["type"] == "array"
