@@ -14,7 +14,9 @@ delivery words on their own.
 
 from __future__ import annotations
 
+import io
 import re
+from concurrent.futures import ThreadPoolExecutor
 from typing import Iterable, Protocol
 
 _PATTERNS = [
@@ -42,7 +44,7 @@ def _normalise(text: str) -> str:
     text = text.replace("：", ":")
     text = re.sub(r"(?<=\w)[._\-](?=\w\b|\w[._\-])", "", text)
     # OCR often reads a capital I as a lowercase l: "Al agents", "Al camera".
-    text = re.sub(r"\bAl\b(?=\s+(agents?|camera|system|model|assistant|bot|verifier)\b)", "AI", text)
+    text = re.sub(r"\bAl\b(?=\s+(?i:agents?|camera|system|model|assistant|bot|verifier)\b)", "AI", text)
     return re.sub(r"\s+", " ", text).strip()
 
 
@@ -74,12 +76,22 @@ Box = tuple[float, float, float, float]  # left, top, width, height as fractions
 
 
 class TextractOcr:
-    """Amazon Textract DetectDocumentText: the lines it can read, and where they are."""
+    """Amazon Textract DetectDocumentText: the lines it can read, and where they are.
 
-    def __init__(self, textract_client):
+    Textract reads documents, and on a whole doorstep scene it can skip lines:
+    on a frame with a parcel under a note it read only the note's last line,
+    "= yes". With tiles=True (the default) the frame is also read as four
+    overlapping quarters, at once, and the lines are merged with their boxes
+    mapped back to the whole frame."""
+
+    TILES = ((0.0, 0.0), (0.4, 0.0), (0.0, 0.4), (0.4, 0.4))  # top-left corners of 60% tiles
+    TILE = 0.6
+
+    def __init__(self, textract_client, tiles: bool = True):
         self.client = textract_client
+        self.tiles = tiles
 
-    def read_boxes(self, image: bytes) -> list[tuple[str, Box]]:
+    def _lines(self, image: bytes) -> list[tuple[str, Box]]:
         resp = self.client.detect_document_text(Document={"Bytes": image})
         out = []
         for b in resp.get("Blocks", []):
@@ -87,6 +99,27 @@ class TextractOcr:
                 bb = (b.get("Geometry") or {}).get("BoundingBox") or {}
                 out.append((b["Text"], (bb.get("Left", 0.0), bb.get("Top", 0.0), bb.get("Width", 0.0), bb.get("Height", 0.0))))
         return out
+
+    def read_boxes(self, image: bytes) -> list[tuple[str, Box]]:
+        if not self.tiles:
+            return self._lines(image)
+        from PIL import Image
+
+        img = Image.open(io.BytesIO(image)).convert("RGB")
+        w, h = img.size
+        pieces = [((0.0, 0.0, 1.0), image)]
+        for x, y in self.TILES:
+            buf = io.BytesIO()
+            img.crop((int(x * w), int(y * h), int((x + self.TILE) * w), int((y + self.TILE) * h))).save(buf, "PNG")
+            pieces.append(((x, y, self.TILE), buf.getvalue()))
+        with ThreadPoolExecutor(len(pieces)) as pool:
+            reads = list(pool.map(self._lines, [data for _, data in pieces]))
+        seen: dict[str, tuple[str, Box]] = {}
+        for ((x, y, scale), _), found in zip(pieces, reads):
+            for text, (left, top, width, height) in found:
+                box = (x + left * scale, y + top * scale, width * scale, height * scale)
+                seen.setdefault(" ".join(text.lower().split()), (text, box))
+        return list(seen.values())
 
     def read(self, image: bytes) -> list[str]:
         return [text for text, _ in self.read_boxes(image)]
