@@ -10,8 +10,8 @@ Built for the Build, Ship, Shape: Amazon Developer Hackathon (Ring track, AWS Bu
 
 | | |
 |---|---|
-| Doorstep Lab (try it) | https://6oqcvqtll5qipgr4wxq7vvymzm0trkvu.lambda-url.us-east-1.on.aws |
-| House API | https://xjpdpbnma655kjxuy26oqex7ja0uqqug.lambda-url.us-east-1.on.aws (`/healthz`, `/.well-known/jwks.json`) |
+| Doorstep Lab (try it) | https://lgr3tamrusi63hhi5x52utxufi0clbok.lambda-url.us-east-1.on.aws |
+| House API | https://6thmigxzjgwhvxohgz66uy7m2i0orwco.lambda-url.us-east-1.on.aws (`/healthz`, `/.well-known/jwks.json`) |
 | Injection eval | [eval/INJECTION.md](eval/INJECTION.md) |
 
 In the lab, pick a scenario. A 3D doorstep plays it, the doorbell's frames go to a Ring look-alike API, and the house answers with a receipt your browser verifies. Pick **Camera offline** to answer the resident's question yourself.
@@ -63,26 +63,26 @@ flowchart TB
 
 ## The receipt
 
-A real one from the hosted lab, decoded:
+A real one from the hosted lab, decoded (header `{"alg": "EdDSA", "typ": "countersign-receipt+jwt", "kid": ...}`):
 
 ```json
 {
-  "iss": "https://6oqcvqtll5qipgr4wxq7vvymzm0trkvu.lambda-url.us-east-1.on.aws/lab",
-  "jti": "eccdc6eb2be84379afab97580d3076b2",
+  "iss": "https://lgr3tamrusi63hhi5x52utxufi0clbok.lambda-url.us-east-1.on.aws/lab",
+  "jti": "ada6f5b584ff48c3abda89c267579695",
   "merchant": "lab-courier", "order_id": "ORD-402", "carrier": "Delhivery",
-  "claimed_at_ms": 1792004556682,
+  "claimed_at_ms": 1792089801018,
   "verdict": "delivered", "reason": "package_appeared",
-  "window": {"start_ms": 1792003356682, "end_ms": 1792005156682},
-  "visit": {"start_ms": 1792004486682, "end_ms": 1792004526682, "vehicle_arrival": true, "vehicle_departure": true,
+  "window": {"start_ms": 1792088601018, "end_ms": 1792090401018},
+  "visit": {"start_ms": 1792089731018, "end_ms": 1792089771018, "vehicle_arrival": true, "vehicle_departure": true,
             "events": ["ava1.ring.history.event.LAB001HUMAN", "..."]},
   "coverage": {"complete": true, "missing_ms": 0, "source": "status_now"},
   "evidence": [
-    {"kind": "snapshot_before", "at_ms": 1792004406682, "sha256": "bc08ac57a661b7a9..."},
-    {"kind": "snapshot_after", "at_ms": 1792004566682, "sha256": "01aa22917a0b580b..."}
+    {"kind": "snapshot_before", "at_ms": 1792089651018, "sha256": "20297b3606bc28c3..."},
+    {"kind": "snapshot_after", "at_ms": 1792089811018, "sha256": "4113b1ce105b0ff5..."}
   ],
   "witness": {"model": "us.amazon.nova-2-lite-v1:0", "package_before": false, "package_after": true,
               "confidence": 1.0, "text_dependent": false},
-  "device": "3699a610f919f9ae"
+  "device": "bcd503984327d320"
 }
 ```
 
@@ -94,7 +94,7 @@ Verifying one needs only the house's public key. Any JWS library with EdDSA work
 import requests
 from countersign.receipt import verify
 
-jwks = requests.get("https://xjpdpbnma655kjxuy26oqex7ja0uqqug.lambda-url.us-east-1.on.aws/.well-known/jwks.json").json()
+jwks = requests.get("https://6thmigxzjgwhvxohgz66uy7m2i0orwco.lambda-url.us-east-1.on.aws/.well-known/jwks.json").json()
 body = verify(token, jwks)  # raises if the signature, key id or header is wrong
 ```
 
