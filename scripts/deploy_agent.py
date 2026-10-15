@@ -17,6 +17,8 @@ from pathlib import Path
 
 import boto3
 
+from deploy import artifact_bucket  # the same artifact bucket as the stack, created if missing
+
 ROOT = Path(__file__).resolve().parent.parent
 NAME = "countersign_dispute_agent"
 ROLE = "countersign-dispute-agent-runtime"
@@ -57,7 +59,7 @@ def main() -> int:
     args = parser.parse_args()
     session = boto3.Session(region_name=args.region)
     account = session.client("sts").get_caller_identity()["Account"]
-    bucket = f"countersign-artifacts-{account}-{args.region}"
+    bucket = artifact_bucket(args.region)
     key = f"agentcore/agent-{int(time.time())}.zip"
     session.client("s3").upload_file(str(ROOT / "build" / "agent.zip"), bucket, key)
     role = ensure_role(session.client("iam"), account, args.region)
