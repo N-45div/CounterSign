@@ -1,6 +1,6 @@
 import pytest
 
-from handshake.ring import RingAuthError, RingClient, RingError
+from countersign.ring import RingAuthError, RingClient, RingError
 
 from .fakes import FakeSession, response
 

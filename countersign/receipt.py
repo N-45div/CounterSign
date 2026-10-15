@@ -2,7 +2,7 @@
 
 A receipt is a compact JWS (RFC 7515) signed with the house's Ed25519 key
 (EdDSA, RFC 8037). Merchants verify it with any JOSE library against the
-house's published JWK set; nothing here is Handshake-specific on their side.
+house's published JWK set; nothing here is Countersign-specific on their side.
 
 The receipt carries the verdict and SHA-256 hashes of the evidence frames,
 never the frames themselves. If a dispute escalates, the resident can reveal
@@ -19,7 +19,7 @@ from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey, Ed25519PublicKey
 
-TYPE = "handshake-receipt+jwt"
+TYPE = "countersign-receipt+jwt"
 
 
 class InvalidReceipt(ValueError):
@@ -101,7 +101,7 @@ def verify(token: str, jwks: dict | list[dict]) -> dict:
     if header.get("alg") != "EdDSA":
         raise InvalidReceipt(f"unsupported alg {header.get('alg')!r}")
     if header.get("typ") != TYPE:
-        raise InvalidReceipt(f"not a Handshake receipt (typ {header.get('typ')!r})")
+        raise InvalidReceipt(f"not a Countersign receipt (typ {header.get('typ')!r})")
     jwk = next((k for k in keys if k.get("kid") == header.get("kid")), None)
     if jwk is None or jwk.get("kty") != "OKP" or jwk.get("crv") != "Ed25519":
         raise InvalidReceipt("signing key not in the house's key set")

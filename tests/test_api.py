@@ -5,11 +5,11 @@ import json
 import pytest
 from fastapi.testclient import TestClient
 
-from handshake.api import create_app, hash_key
-from handshake.desk import Desk
-from handshake.house import SETTLE_MS, House, HouseConfig
-from handshake.receipt import HouseKey, verify
-from handshake.store import MemoryStore
+from countersign.api import create_app, hash_key
+from countersign.desk import Desk
+from countersign.house import SETTLE_MS, House, HouseConfig
+from countersign.receipt import HouseKey, verify
+from countersign.store import MemoryStore
 
 from .test_desk import T0, Clock, FakeRing, Recorder, Witness
 
@@ -114,9 +114,9 @@ RESIDENT = "hsr_resident_456"
 
 @pytest.fixture
 def resident_world():
-    from handshake.desk import ClaimRecord, ClaimStatus
-    from handshake.disputes import Disputes
-    from handshake.receipt import issue
+    from countersign.desk import ClaimRecord, ClaimStatus
+    from countersign.disputes import Disputes
+    from countersign.receipt import issue
 
     clock = Clock(T0 + 60_000)
     store = MemoryStore()

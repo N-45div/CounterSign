@@ -2,10 +2,10 @@ import boto3
 import pytest
 from moto import mock_aws
 
-from handshake.aws_store import DynamoStore
-from handshake.desk import ClaimRecord, ClaimStatus
-from handshake.episode import Window
-from handshake.store import StoredReceipt
+from countersign.aws_store import DynamoStore
+from countersign.desk import ClaimRecord, ClaimStatus
+from countersign.episode import Window
+from countersign.store import StoredReceipt
 
 
 @pytest.fixture
@@ -16,15 +16,15 @@ def store(monkeypatch):
     with mock_aws():
         ddb = boto3.resource("dynamodb", region_name="us-east-1")
         table = ddb.create_table(
-            TableName="handshake",
+            TableName="countersign",
             KeySchema=[{"AttributeName": "pk", "KeyType": "HASH"}, {"AttributeName": "sk", "KeyType": "RANGE"}],
             AttributeDefinitions=[{"AttributeName": "pk", "AttributeType": "S"},
                                   {"AttributeName": "sk", "AttributeType": "S"}],
             BillingMode="PAY_PER_REQUEST",
         )
         s3 = boto3.client("s3", region_name="us-east-1")
-        s3.create_bucket(Bucket="handshake-frames")
-        yield DynamoStore(table, s3, "handshake-frames")
+        s3.create_bucket(Bucket="countersign-frames")
+        yield DynamoStore(table, s3, "countersign-frames")
 
 
 def test_claims_round_trip(store):
@@ -48,7 +48,7 @@ def test_frames_are_private_encrypted_objects(store):
     store.put_frames("r1", {"before": b"\xff\xd8a", "after": b"\xff\xd8b"})
     assert store.get_frames("r1") == {"before": b"\xff\xd8a", "after": b"\xff\xd8b"}
     assert store.get_frames("r2") == {}
-    head = store.s3.head_object(Bucket="handshake-frames", Key="frames/r1/after")
+    head = store.s3.head_object(Bucket="countersign-frames", Key="frames/r1/after")
     assert head["ServerSideEncryption"] == "AES256"
 
 
@@ -71,7 +71,7 @@ def test_webhook_request_ids_are_seen_once(store):
 
 
 def test_a_namespaced_store_shares_the_table_without_sharing_records(store):
-    from handshake.disputes import Question
+    from countersign.disputes import Question
 
     lab = DynamoStore(store.table, store.s3, store.bucket, namespace="LAB#", frames_prefix="lab/evidence/")
     lab.put_question(Question("q_lab", "clm_lab", "r_lab", "ORD-L", "lab-courier", "Did it arrive?", 1))

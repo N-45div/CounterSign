@@ -8,8 +8,8 @@ AgentCore Runtime.
 
     python scripts/check_prod.py --house URL [--lab URL] [--dispute]
 
-Keys come from the environment or ~/.secrets/handshake.env
-(HANDSHAKE_MERCHANT_KEY, HANDSHAKE_RESIDENT_KEY). AWS credentials are needed
+Keys come from the environment or ~/.secrets/countersign.env
+(COUNTERSIGN_MERCHANT_KEY, COUNTERSIGN_RESIDENT_KEY). AWS credentials are needed
 for the webhook key (house secret), --dispute and the log check.
 
 --dispute settles a real claim on the Ring Playground device through the
@@ -33,7 +33,7 @@ from pathlib import Path
 import requests
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from handshake.receipt import verify  # noqa: E402
+from countersign.receipt import verify  # noqa: E402
 
 MIN = 60_000
 results: list[tuple[str, bool, str]] = []
@@ -47,13 +47,13 @@ def check(name: str, ok: bool, detail: str = "") -> bool:
 
 def local_keys() -> dict:
     keys = {}
-    path = Path.home() / ".secrets" / "handshake.env"
+    path = Path.home() / ".secrets" / "countersign.env"
     if path.exists():
         for line in path.read_text(encoding="utf-8").splitlines():
             if "=" in line:
                 k, v = line.split("=", 1)
                 keys[k.strip()] = v.strip()
-    return {**keys, **{k: v for k, v in os.environ.items() if k.startswith("HANDSHAKE_")}}
+    return {**keys, **{k: v for k, v in os.environ.items() if k.startswith("COUNTERSIGN_")}}
 
 
 def bearer(key: str) -> dict:
@@ -84,7 +84,7 @@ def signed(key: str, kind: str, device_id: str, at_ms: int, request_id: str) -> 
 
 
 def house_checks(url: str, keys: dict, webhook_key: str | None, run: str) -> None:
-    merchant, resident = keys["HANDSHAKE_MERCHANT_KEY"], keys.get("HANDSHAKE_RESIDENT_KEY")
+    merchant, resident = keys["COUNTERSIGN_MERCHANT_KEY"], keys.get("COUNTERSIGN_RESIDENT_KEY")
     now = int(time.time() * 1000)
 
     def claim(body, key=merchant):
@@ -197,10 +197,10 @@ def house_checks(url: str, keys: dict, webhook_key: str | None, run: str) -> Non
 
 
 def dispute_check(url: str, keys: dict, webhook_key: str, ring_token: str, run: str) -> None:
-    from handshake.ring import RingClient
-    from handshake.tokens import StaticToken
+    from countersign.ring import RingClient
+    from countersign.tokens import StaticToken
 
-    merchant, resident = keys["HANDSHAKE_MERCHANT_KEY"], keys["HANDSHAKE_RESIDENT_KEY"]
+    merchant, resident = keys["COUNTERSIGN_MERCHANT_KEY"], keys["COUNTERSIGN_RESIDENT_KEY"]
     devices = RingClient(StaticToken(ring_token)).devices()
     if not check(
         "the Ring token sees the Playground device", bool(devices), devices[0].id[:40] if devices else "no devices"
@@ -370,7 +370,7 @@ def log_check(region: str, since_ms: int) -> None:
 
     cfn, logs = boto3.client("cloudformation", region_name=region), boto3.client("logs", region_name=region)
     for logical in ("ApiFunction", "WorkerFunction", "LabFunction"):
-        name = cfn.describe_stack_resource(StackName="handshake", LogicalResourceId=logical)["StackResourceDetail"][
+        name = cfn.describe_stack_resource(StackName="countersign", LogicalResourceId=logical)["StackResourceDetail"][
             "PhysicalResourceId"
         ]
         hits = []
@@ -401,8 +401,8 @@ def main() -> int:
         import boto3
 
         sm = boto3.client("secretsmanager", region_name=args.region)
-        webhook_key = json.loads(sm.get_secret_value(SecretId="handshake/house")["SecretString"])["webhook_signing_key"]
-        ring_token = sm.get_secret_value(SecretId="handshake/ring-token")["SecretString"]
+        webhook_key = json.loads(sm.get_secret_value(SecretId="countersign/house")["SecretString"])["webhook_signing_key"]
+        ring_token = sm.get_secret_value(SecretId="countersign/ring-token")["SecretString"]
     except Exception as exc:  # no AWS credentials: the signed-webhook, dispute and log checks are skipped
         print(f"(no house secret: {type(exc).__name__}; skipping signed webhooks, --dispute and logs)")
 

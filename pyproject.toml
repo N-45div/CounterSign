@@ -3,7 +3,7 @@ requires = ["setuptools>=69"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "handshake"
+name = "countersign"
 version = "0.1.0"
 description = "Signed doorstep delivery receipts, witnessed by a Ring camera"
 readme = "README.md"
@@ -30,7 +30,7 @@ dev = [
 ]
 
 [tool.setuptools.packages.find]
-include = ["handshake*"]
+include = ["countersign*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

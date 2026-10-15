@@ -1,6 +1,6 @@
 """Client for the Ring Partner API (api.amazonvision.com).
 
-Covers what Handshake reads from a house: devices and their camera modules,
+Covers what Countersign reads from a house: devices and their camera modules,
 event history, image snapshots and recorded clips. Everything is read-only.
 
 Two quirks of the API shape this client:

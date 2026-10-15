@@ -1,15 +1,15 @@
 import pytest
 
-from handshake.desk import MAX_ATTEMPTS, ClaimStatus, Desk, InvalidClaim, claim_id_for
-from handshake.episode import LOOK_AFTER_CLAIM_MS
-from handshake.house import SETTLE_MS, House, HouseConfig
-from handshake.receipt import HouseKey, verify
-from handshake.ring import HistoryEvent, Media, RingAuthError, RingError
-from handshake.store import MemoryStore
-from handshake.verdict import WitnessReport
+from countersign.desk import MAX_ATTEMPTS, ClaimStatus, Desk, InvalidClaim, claim_id_for
+from countersign.episode import LOOK_AFTER_CLAIM_MS
+from countersign.house import SETTLE_MS, House, HouseConfig
+from countersign.receipt import HouseKey, verify
+from countersign.ring import HistoryEvent, Media, RingAuthError, RingError
+from countersign.store import MemoryStore
+from countersign.verdict import WitnessReport
 
 T0 = 1_790_000_000_000
-CONFIG = HouseConfig("h1", "https://handshake.example/h/h1", "dev", "salt")
+CONFIG = HouseConfig("h1", "https://countersign.example/h/h1", "dev", "salt")
 
 
 class Clock:

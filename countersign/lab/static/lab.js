@@ -13,7 +13,7 @@ const REASONS = {
   package_appeared: "A parcel is on the doorstep in the after-frame that was not there before the visit.",
   no_one_at_door: "The camera was recording the whole window and nobody came to the door.",
   visit_without_package: "Someone came to the door and left nothing behind.",
-  instruction_text_in_frame: "Text in the frame was addressed to the AI. Handshake never confirms a delivery from a frame like that.",
+  instruction_text_in_frame: "Text in the frame was addressed to the AI. Countersign never confirms a delivery from a frame like that.",
   answer_depends_on_text: "The witness saw a parcel only while the frame's text was visible. Hidden, it was gone: words, not a box.",
   camera_not_recording: "The camera was offline for part of the window, so a no would not be fair. Route this to a person.",
   package_already_there: "A parcel was already on the doorstep before the visit, so a new one cannot be told apart.",

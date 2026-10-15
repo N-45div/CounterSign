@@ -1,6 +1,6 @@
 """Probe what the Ring Developer Playground token can actually reach.
 
-Handshake builds a delivery episode out of Ring data: a vehicle arrives, a
+Countersign builds a delivery episode out of Ring data: a vehicle arrives, a
 person walks up, a package is left, the vehicle leaves. Before building on it,
 this script checks which of those pieces the Playground exposes: devices,
 event history (per motion subtype), image snapshots and recorded clips.

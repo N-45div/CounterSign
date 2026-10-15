@@ -236,7 +236,7 @@ export function createWorld(worldCanvas, doorbellCanvas) {
     g.drawImage(capCanvas, 0, 0, 1280, 720);
     g.fillStyle = "rgba(10,10,14,.78)"; g.fillRect(0, 0, 1280, 36);
     g.fillStyle = "#eee"; g.font = "20px Inter, Arial, sans-serif"; g.textBaseline = "middle";
-    g.fillText(`Handshake Lab  |  ${label}`, 14, 18);
+    g.fillText(`Countersign Lab  |  ${label}`, 14, 18);
     g.fillText(new Date(atMs).toISOString().replace("T", " ").slice(0, 19) + " UTC", 1010, 18);
     return new Promise((ok) => compose.toBlob(ok, "image/jpeg", 0.88));
   }

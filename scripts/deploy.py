@@ -19,7 +19,7 @@ from pathlib import Path
 import boto3
 
 ROOT = Path(__file__).resolve().parent.parent
-STACK = "handshake"
+STACK = "countersign"
 
 
 def run(*cmd: str) -> None:
@@ -29,7 +29,7 @@ def run(*cmd: str) -> None:
 
 def artifact_bucket(region: str) -> str:
     account = boto3.client("sts", region_name=region).get_caller_identity()["Account"]
-    name = f"handshake-artifacts-{account}-{region}"
+    name = f"countersign-artifacts-{account}-{region}"
     s3 = boto3.client("s3", region_name=region)
     try:
         s3.head_bucket(Bucket=name)
@@ -55,7 +55,7 @@ def main() -> int:
     parser.add_argument("--skip-build", action="store_true", help="reuse build/lambda from a previous build")
     args = parser.parse_args()
 
-    if not args.skip_build or not (ROOT / "build" / "lambda" / "handshake").exists():
+    if not args.skip_build or not (ROOT / "build" / "lambda" / "countersign").exists():
         run(sys.executable, "scripts/build_lambda.py")
     bucket = artifact_bucket(args.region)
     run("aws", "cloudformation", "package", "--region", args.region, "--template-file", "infra/template.yaml",

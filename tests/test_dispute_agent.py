@@ -1,11 +1,11 @@
 import json
 
-from handshake.desk import ClaimRecord, ClaimStatus
-from handshake.dispute_agent import (DisputeAgent, RemoteDisputeAgent, claim_facts_for, exchange_for,
+from countersign.desk import ClaimRecord, ClaimStatus
+from countersign.dispute_agent import (DisputeAgent, RemoteDisputeAgent, claim_facts_for, exchange_for,
                                      interpretation_tools, question_tools, template_question)
-from handshake.disputes import Disputes
-from handshake.receipt import HouseKey, issue
-from handshake.store import MemoryStore
+from countersign.disputes import Disputes
+from countersign.receipt import HouseKey, issue
+from countersign.store import MemoryStore
 
 KEY = HouseKey.generate()
 T = 1_791_000_000_000
@@ -123,13 +123,13 @@ def test_the_house_side_loads_without_strands(monkeypatch):
     import sys
 
     monkeypatch.setitem(sys.modules, "strands", None)  # the Lambda bundle has no Strands
-    monkeypatch.delitem(sys.modules, "handshake.dispute_agent")
-    module = importlib.import_module("handshake.dispute_agent")
+    monkeypatch.delitem(sys.modules, "countersign.dispute_agent")
+    module = importlib.import_module("countersign.dispute_agent")
     assert module.RemoteDisputeAgent and module.agentcore_invoker
 
 
 def test_questions_name_the_day_in_the_residents_timezone():
-    from handshake.dispute_agent import _day
+    from countersign.dispute_agent import _day
 
     late = 1_791_491_400_000  # 2026-10-08 20:30 UTC, already 9 October in India
     assert _day(late) == "Thursday 08 October 2026"

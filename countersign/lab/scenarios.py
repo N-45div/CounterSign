@@ -7,7 +7,7 @@ the start of the scene: when a vehicle is in view, when a person is, when a
 parcel or a note is on the doorstep, and when the camera is offline. Motion
 events, frames and online/offline webhooks are all derived from it.
 
-Each scenario also names the verdict Handshake should reach, so the lab
+Each scenario also names the verdict Countersign should reach, so the lab
 doubles as an end-to-end test of every verdict path.
 """
 
@@ -96,14 +96,14 @@ SCENARIOS: dict[str, Scenario] = {s.name: s for s in [
     Scenario(
         name="camera_offline",
         title="Camera offline",
-        story="The doorbell lost Wi-Fi for the whole delivery window. Handshake will not call that a no.",
+        story="The doorbell lost Wi-Fi for the whole delivery window. Countersign will not call that a no.",
         claim_at_s=150, expected=("inconclusive", "camera_not_recording"),
         offline=((20, 520),),
     ),
     Scenario(
         name="already_there",
         title="A parcel was already there",
-        story="Yesterday's parcel is still on the mat when a neighbour drops by. Handshake cannot tell a new one apart.",
+        story="Yesterday's parcel is still on the mat when a neighbour drops by. Countersign cannot tell a new one apart.",
         claim_at_s=150, expected=("inconclusive", "package_already_there"),
         people=((80, 110),), parcels=((0, FOREVER),),
     ),

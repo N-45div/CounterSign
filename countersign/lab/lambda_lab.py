@@ -8,11 +8,11 @@ same Function URL the visitor used, with the session's token. The resident's
 question and reply go to the same dispute agent on AgentCore Runtime as the
 real house's.
 
-    HANDSHAKE_TABLE, HANDSHAKE_BUCKET   shared with the house stack
-    HANDSHAKE_LAB_SECRET                JSON: signing_key_pem, webhook_key
-    HANDSHAKE_WITNESS_MODEL             optional Bedrock model id
-    HANDSHAKE_LAB_DAILY_RUNS            Nova-judged runs per day before falling back to ground truth
-    HANDSHAKE_AGENT_RUNTIME_ARN         optional dispute agent on AgentCore Runtime
+    COUNTERSIGN_TABLE, COUNTERSIGN_BUCKET   shared with the house stack
+    COUNTERSIGN_LAB_SECRET                JSON: signing_key_pem, webhook_key
+    COUNTERSIGN_WITNESS_MODEL             optional Bedrock model id
+    COUNTERSIGN_LAB_DAILY_RUNS            Nova-judged runs per day before falling back to ground truth
+    COUNTERSIGN_AGENT_RUNTIME_ARN         optional dispute agent on AgentCore Runtime
 """
 
 from __future__ import annotations
@@ -39,19 +39,19 @@ AGENT_LABEL = "Strands agent on Amazon Bedrock AgentCore Runtime"
 def _app() -> Mangum:
     env = os.environ
     aws = boto3.Session()
-    secret = json.loads(aws.client("secretsmanager").get_secret_value(SecretId=env["HANDSHAKE_LAB_SECRET"])["SecretString"])
-    table = aws.resource("dynamodb").Table(env["HANDSHAKE_TABLE"])
+    secret = json.loads(aws.client("secretsmanager").get_secret_value(SecretId=env["COUNTERSIGN_LAB_SECRET"])["SecretString"])
+    table = aws.resource("dynamodb").Table(env["COUNTERSIGN_TABLE"])
     s3 = aws.client("s3")
-    bucket = env["HANDSHAKE_BUCKET"]
+    bucket = env["COUNTERSIGN_BUCKET"]
     runtime, textract = aws.client("bedrock-runtime"), aws.client("textract")
-    model = env.get("HANDSHAKE_WITNESS_MODEL") or DEFAULT_MODEL
+    model = env.get("COUNTERSIGN_WITNESS_MODEL") or DEFAULT_MODEL
     agent = None
-    if arn := env.get("HANDSHAKE_AGENT_RUNTIME_ARN"):
+    if arn := env.get("COUNTERSIGN_AGENT_RUNTIME_ARN"):
         invoke = agentcore_invoker(aws.client("bedrock-agentcore"), arn)
-        agent_model = env.get("HANDSHAKE_AGENT_MODEL") or DEFAULT_MODEL
+        agent_model = env.get("COUNTERSIGN_AGENT_MODEL") or DEFAULT_MODEL
         agent = lambda disputes: RemoteDisputeAgent(invoke, disputes, agent_model)  # noqa: E731
     app = create_lab(
-        sessions=DynamoSessions(table, s3, bucket, int(env.get("HANDSHAKE_LAB_DAILY_RUNS", "300"))),
+        sessions=DynamoSessions(table, s3, bucket, int(env.get("COUNTERSIGN_LAB_DAILY_RUNS", "300"))),
         house_store=DynamoStore(table, s3, bucket, namespace="LAB#", frames_prefix="lab/evidence/"),
         key=HouseKey.from_pem(secret["signing_key_pem"].encode()),
         webhook_key=secret["webhook_key"],

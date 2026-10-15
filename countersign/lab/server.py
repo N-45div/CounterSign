@@ -1,11 +1,11 @@
 """The Doorstep Lab server: the Ring emulator, a lab house, and the 3D page.
 
-    python -m handshake.lab.server [--port 8800] [--witness nova|truth] [--model MODEL]
+    python -m countersign.lab.server [--port 8800] [--witness nova|truth] [--model MODEL]
                                    [--agent none|local|agentcore]
 
 --agent local runs the dispute agent's Strands proposals in this process (the
 agent extra); --agent agentcore calls the deployed one named by
-HANDSHAKE_AGENT_RUNTIME_ARN.
+COUNTERSIGN_AGENT_RUNTIME_ARN.
 
 Every visitor gets a session (see sessions.py), so the same app runs locally
 for one person and on Lambda for many:
@@ -102,7 +102,7 @@ def create_lab(
     `base_url` is where the house reaches the emulator; None means the URL the request came in on.
     `dispute_agent` builds the agent that words the resident's question and reads the reply (it shares
     the daily budget with the witness); None means a template question and nobody to read the reply."""
-    app = FastAPI(title="Handshake Doorstep Lab")
+    app = FastAPI(title="Countersign Doorstep Lab")
 
     def base(request: Request) -> str:
         return (base_url or str(request.base_url)).rstrip("/")
@@ -289,7 +289,7 @@ def main() -> None:
         import boto3
 
         from ..dispute_agent import RemoteDisputeAgent, agentcore_invoker
-        invoke = agentcore_invoker(boto3.client("bedrock-agentcore"), os.environ["HANDSHAKE_AGENT_RUNTIME_ARN"])
+        invoke = agentcore_invoker(boto3.client("bedrock-agentcore"), os.environ["COUNTERSIGN_AGENT_RUNTIME_ARN"])
         agent = lambda d: RemoteDisputeAgent(invoke, d, args.model)  # noqa: E731
         label = "Strands agent on Amazon Bedrock AgentCore Runtime"
 

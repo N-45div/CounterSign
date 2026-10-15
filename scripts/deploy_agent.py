@@ -18,8 +18,8 @@ from pathlib import Path
 import boto3
 
 ROOT = Path(__file__).resolve().parent.parent
-NAME = "handshake_dispute_agent"
-ROLE = "handshake-dispute-agent-runtime"
+NAME = "countersign_dispute_agent"
+ROLE = "countersign-dispute-agent-runtime"
 
 
 def ensure_role(iam, account: str, region: str) -> str:
@@ -44,7 +44,7 @@ def ensure_role(iam, account: str, region: str) -> str:
         arn = iam.get_role(RoleName=ROLE)["Role"]["Arn"]
     except iam.exceptions.NoSuchEntityException:
         arn = iam.create_role(RoleName=ROLE, AssumeRolePolicyDocument=json.dumps(trust),
-                              Description="Handshake dispute agent on AgentCore: Nova and logs only")["Role"]["Arn"]
+                              Description="Countersign dispute agent on AgentCore: Nova and logs only")["Role"]["Arn"]
         time.sleep(10)  # let the new role propagate before AgentCore assumes it
     iam.put_role_policy(RoleName=ROLE, PolicyName="nova-and-logs", PolicyDocument=json.dumps(policy))
     return arn
@@ -57,7 +57,7 @@ def main() -> int:
     args = parser.parse_args()
     session = boto3.Session(region_name=args.region)
     account = session.client("sts").get_caller_identity()["Account"]
-    bucket = f"handshake-artifacts-{account}-{args.region}"
+    bucket = f"countersign-artifacts-{account}-{args.region}"
     key = f"agentcore/agent-{int(time.time())}.zip"
     session.client("s3").upload_file(str(ROOT / "build" / "agent.zip"), bucket, key)
     role = ensure_role(session.client("iam"), account, args.region)
@@ -69,8 +69,8 @@ def main() -> int:
             "runtime": "PYTHON_3_12", "entryPoint": ["app.py"]}},
         "roleArn": role,
         "networkConfiguration": {"networkMode": "PUBLIC"},
-        "environmentVariables": {"HANDSHAKE_AGENT_MODEL": args.model},
-        "description": "Handshake dispute agent: proposes resident questions and reads replies. Holds no keys.",
+        "environmentVariables": {"COUNTERSIGN_AGENT_MODEL": args.model},
+        "description": "Countersign dispute agent: proposes resident questions and reads replies. Holds no keys.",
     }
     existing = [r for r in control.list_agent_runtimes().get("agentRuntimes", []) if r["agentRuntimeName"] == NAME]
     if existing:

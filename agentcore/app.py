@@ -1,4 +1,4 @@
-"""Handshake's dispute agent on Amazon Bedrock AgentCore Runtime.
+"""Countersign's dispute agent on Amazon Bedrock AgentCore Runtime.
 
 Keyless and stateless by design: a payload of facts comes in, a proposal goes
 out. The house that calls this holds the claims, the resident's reply and the
@@ -16,9 +16,9 @@ import os
 from bedrock_agentcore.runtime import BedrockAgentCoreApp
 from strands.models import BedrockModel
 
-from handshake.dispute_agent import propose_interpretation, propose_question
+from countersign.dispute_agent import propose_interpretation, propose_question
 
-MODEL_ID = os.environ.get("HANDSHAKE_AGENT_MODEL", "us.amazon.nova-2-lite-v1:0")
+MODEL_ID = os.environ.get("COUNTERSIGN_AGENT_MODEL", "us.amazon.nova-2-lite-v1:0")
 app = BedrockAgentCoreApp()
 _model = None
 

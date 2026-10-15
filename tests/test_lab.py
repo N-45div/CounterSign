@@ -1,4 +1,4 @@
-"""The lab emulator behind a real HTTP server, driven by Handshake's unchanged Ring client."""
+"""The lab emulator behind a real HTTP server, driven by Countersign's unchanged Ring client."""
 
 import hashlib
 import socket
@@ -9,15 +9,15 @@ import pytest
 import uvicorn
 from fastapi.testclient import TestClient
 
-from handshake.api import create_app, hash_key
-from handshake.desk import Desk
-from handshake.house import House, HouseConfig
-from handshake.lab.emulator import LabState, create_emulator, send_status_webhooks
-from handshake.lab.scenarios import SCENARIOS
-from handshake.receipt import HouseKey, verify
-from handshake.ring import RingAuthError, RingClient, RingError
-from handshake.store import MemoryStore
-from handshake.verdict import WitnessReport
+from countersign.api import create_app, hash_key
+from countersign.desk import Desk
+from countersign.house import House, HouseConfig
+from countersign.lab.emulator import LabState, create_emulator, send_status_webhooks
+from countersign.lab.scenarios import SCENARIOS
+from countersign.receipt import HouseKey, verify
+from countersign.ring import RingAuthError, RingClient, RingError
+from countersign.store import MemoryStore
+from countersign.verdict import WitnessReport
 
 TOKEN = "lab-token"
 WEBHOOK_KEY = "lab-hmac"
@@ -96,7 +96,7 @@ def test_media_comes_through_a_303_and_misses_are_416(lab):
 def test_history_pages_follow_next_links(lab):
     state, url = lab
     world = state.play("honest_delivery")
-    from handshake.lab import emulator
+    from countersign.lab import emulator
     original = emulator.PAGE_SIZE
     emulator.PAGE_SIZE = 1
     try:

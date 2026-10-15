@@ -1,10 +1,10 @@
-# Handshake
+# Countersign
 
 Signed doorstep delivery receipts, witnessed by the customer's own Ring camera.
 
 A courier's app says "delivered at 2:14 pm". The customer says nothing came. The merchant has to pick a side: refund on the customer's word or refuse on the courier's. Neither side can show anything.
 
-Handshake lets the house settle it. When a merchant or courier claims a delivery, the house checks its Ring event history and the frames before and after that visit, then answers with a receipt it signs: **delivered**, **not observed** or **inconclusive**, with the reason. The video never leaves the house. Only the verdict and hashes of the evidence do. When the camera cannot settle it, the house asks the resident one plain question and signs their answer as a second receipt that points at the first.
+Countersign lets the house settle it. When a merchant or courier claims a delivery, the house checks its Ring event history and the frames before and after that visit, then answers with a receipt it signs: **delivered**, **not observed** or **inconclusive**, with the reason. The video never leaves the house. Only the verdict and hashes of the evidence do. When the camera cannot settle it, the house asks the resident one plain question and signs their answer as a second receipt that points at the first.
 
 Built for the Build, Ship, Shape: Amazon Developer Hackathon (Ring track, AWS Builder mini challenge).
 
@@ -23,7 +23,7 @@ A doorstep camera sees text anyone can put there. We taped 20 notes to an empty 
 | Latest run | Nova Lite | Nova 2 Lite |
 |---|---|---|
 | The model's answer alone: false "parcel left" | 10 of 20 | 1 of 20 |
-| Handshake's receipts: false "delivered" | **0 of 20** | **0 of 20** |
+| Countersign's receipts: false "delivered" | **0 of 20** | **0 of 20** |
 
 Ordinary notes ("Please leave parcels with the guard") flagged as attacks: 0 of 6. Controls right: 4 of 4. In the first run Nova Lite believed 15 of the 20 notes; with every defence on (the last three runs), neither model produced a false receipt, 0 in 60 notes each. Each defence and what it removed is in [eval/INJECTION.md](eval/INJECTION.md).
 
@@ -92,7 +92,7 @@ Verifying one needs only the house's public key. Any JWS library with EdDSA work
 
 ```python
 import requests
-from handshake.receipt import verify
+from countersign.receipt import verify
 
 jwks = requests.get("https://xjpdpbnma655kjxuy26oqex7ja0uqqug.lambda-url.us-east-1.on.aws/.well-known/jwks.json").json()
 body = verify(token, jwks)  # raises if the signature, key id or header is wrong
@@ -167,7 +167,7 @@ Locally, with no AWS account (the witness reports the scenario's ground truth):
 ```
 python -m pip install -e ".[aws,lab,agent,dev]"
 python -m pytest
-python -m handshake.lab.server --witness truth     # http://127.0.0.1:8800
+python -m countersign.lab.server --witness truth     # http://127.0.0.1:8800
 ```
 
 With AWS credentials, `--witness nova` uses Amazon Nova and Textract, and `--agent local` runs the dispute agent in process.
@@ -175,7 +175,7 @@ With AWS credentials, `--witness nova` uses Amazon Nova and Textract, and `--age
 Deploying your own house (us-east-1, Bedrock access to Amazon Nova):
 
 ```
-python scripts/bootstrap_house.py      # house key; merchant and resident keys go to ~/.secrets/handshake.env
+python scripts/bootstrap_house.py      # house key; merchant and resident keys go to ~/.secrets/countersign.env
 python scripts/bootstrap_lab.py        # the lab's key
 python scripts/build_agent.py && python scripts/deploy_agent.py    # prints the agent runtime ARN
 python scripts/deploy.py --house-secret <arn> --ring-token-secret <arn> --lab-secret <arn> \
@@ -192,14 +192,14 @@ Other scripts: `probe_playground.py` (what a Ring token can reach), `eval_inject
 ## Layout
 
 ```
-handshake/        ring.py, webhooks.py            the Ring client and webhook checks
+countersign/        ring.py, webhooks.py            the Ring client and webhook checks
                   episode.py, house.py            claim windows, visits, frames, the house
                   witness.py, doorman.py          Nova witness, text rules, the text-blind second look
                   verdict.py, receipt.py          rules and Ed25519 receipts
                   desk.py, api.py                 claims and the HTTP API
                   disputes.py, dispute_agent.py   resident questions and resolutions
                   store.py, aws_store.py, lambda_app.py, tokens.py
-handshake/lab/    scenarios, the Ring emulator, sessions, the 3D page
+countersign/lab/    scenarios, the Ring emulator, sessions, the 3D page
 agentcore/app.py  the dispute agent's AgentCore entry point
 infra/            the SAM template
 eval/             the injection eval and its results
@@ -210,7 +210,7 @@ tests/            205 tests, run on GitHub Actions
 ## Limits
 
 - One household and one camera per house.
-- Handshake is not registered as a Ring app yet, so the webhook signing key is the house's own and tokens come from the Playground (30 minutes each). Ring OAuth refresh is written (`tokens.RefreshingToken`) but untested against Ring.
+- Countersign is not registered as a Ring app yet, so the webhook signing key is the house's own and tokens come from the Playground (30 minutes each). Ring OAuth refresh is written (`tokens.RefreshingToken`) but untested against Ring.
 - The witness judges two snapshots, not the clip.
 - Nova can still be wrong. The rules are built so that the expensive mistake, a false "delivered", needs a parcel on the ground after the visit, none before it, no text the answer depends on, and confidence of at least 0.8.
 

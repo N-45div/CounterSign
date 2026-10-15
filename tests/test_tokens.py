@@ -1,7 +1,7 @@
 import pytest
 
-from handshake.ring import RingAuthError
-from handshake.tokens import OAUTH_URL, RefreshingToken, SecretToken, StaticToken, clean_token
+from countersign.ring import RingAuthError
+from countersign.tokens import OAUTH_URL, RefreshingToken, SecretToken, StaticToken, clean_token
 
 from .fakes import response
 
@@ -34,7 +34,7 @@ class FakeSecrets:
 def test_secret_token_rereads_after_its_ttl():
     now = [0.0]
     secrets = FakeSecrets(['export TOKEN="eyJ.one.x"', "eyJ.two.x"])
-    token = SecretToken(secrets, "handshake/ring-token", ttl_s=60, clock=lambda: now[0])
+    token = SecretToken(secrets, "countersign/ring-token", ttl_s=60, clock=lambda: now[0])
     assert token() == "eyJ.one.x" and token() == "eyJ.one.x"
     assert secrets.reads == 1
     now[0] = 61

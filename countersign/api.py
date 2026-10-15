@@ -127,7 +127,7 @@ def create_app(
     resident_key_hash: str | None = None,
     interpret_reply: Callable[[str], object] | None = None,
 ) -> FastAPI:
-    app = FastAPI(title="Handshake", version="0.1.0", summary="Signed doorstep delivery receipts, witnessed by a Ring camera")
+    app = FastAPI(title="Countersign", version="0.1.0", summary="Signed doorstep delivery receipts, witnessed by a Ring camera")
 
     def merchant_for(authorization: str | None) -> str | None:
         if not authorization or not authorization.lower().startswith("bearer "):

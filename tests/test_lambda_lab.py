@@ -4,8 +4,8 @@ import boto3
 import pytest
 from moto import mock_aws
 
-from handshake.lab import lambda_lab
-from handshake.receipt import HouseKey
+from countersign.lab import lambda_lab
+from countersign.receipt import HouseKey
 
 from .test_lambda_app import url_event
 
@@ -22,8 +22,8 @@ def hosted(monkeypatch):
         boto3.client("s3").create_bucket(Bucket="frames")
         key = HouseKey.generate()
         boto3.client("secretsmanager").create_secret(
-            Name="handshake/lab", SecretString=json.dumps({"signing_key_pem": key.to_pem().decode(), "webhook_key": "wk"}))
-        for k, v in {"HANDSHAKE_TABLE": "hs", "HANDSHAKE_BUCKET": "frames", "HANDSHAKE_LAB_SECRET": "handshake/lab"}.items():
+            Name="countersign/lab", SecretString=json.dumps({"signing_key_pem": key.to_pem().decode(), "webhook_key": "wk"}))
+        for k, v in {"COUNTERSIGN_TABLE": "hs", "COUNTERSIGN_BUCKET": "frames", "COUNTERSIGN_LAB_SECRET": "countersign/lab"}.items():
             monkeypatch.setenv(k, v)
         lambda_lab._app.cache_clear()
         yield key
@@ -57,7 +57,7 @@ def test_a_hosted_session_is_stored_and_its_ring_token_works(hosted):
 def test_the_hosted_lab_uses_the_agentcore_agent_when_configured(hosted, monkeypatch):
     status, resp = call(url_event("GET", "/lab/config"))
     assert json.loads(resp["body"])["dispute_agent"] is None
-    monkeypatch.setenv("HANDSHAKE_AGENT_RUNTIME_ARN", "arn:aws:bedrock-agentcore:us-east-1:123:runtime/x")
+    monkeypatch.setenv("COUNTERSIGN_AGENT_RUNTIME_ARN", "arn:aws:bedrock-agentcore:us-east-1:123:runtime/x")
     lambda_lab._app.cache_clear()
     status, resp = call(url_event("GET", "/lab/config"))
     assert json.loads(resp["body"])["dispute_agent"] == lambda_lab.AGENT_LABEL

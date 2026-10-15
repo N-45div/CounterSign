@@ -4,11 +4,11 @@ import boto3
 import pytest
 from moto import mock_aws
 
-from handshake.aws_store import DynamoStore
-from handshake.desk import ClaimRecord, ClaimStatus
-from handshake.disputes import Disputes, DisputeError
-from handshake.receipt import HouseKey, verify
-from handshake.store import MemoryStore
+from countersign.aws_store import DynamoStore
+from countersign.desk import ClaimRecord, ClaimStatus
+from countersign.disputes import Disputes, DisputeError
+from countersign.receipt import HouseKey, verify
+from countersign.store import MemoryStore
 
 KEY = HouseKey.generate()
 

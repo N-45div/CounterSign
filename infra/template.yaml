@@ -1,6 +1,6 @@
 AWSTemplateFormatVersion: "2010-09-09"
 Transform: AWS::Serverless-2016-10-31
-Description: Handshake. Signed doorstep delivery receipts, witnessed by a Ring camera.
+Description: Countersign. Signed doorstep delivery receipts, witnessed by a Ring camera.
 
 Parameters:
   HouseSecretArn:
@@ -45,16 +45,16 @@ Globals:
     Timeout: 60
     Environment:
       Variables:
-        HANDSHAKE_TABLE: !Ref Table
-        HANDSHAKE_BUCKET: !Ref FramesBucket
-        HANDSHAKE_QUEUE_URL: !Ref ClaimsQueue
-        HANDSHAKE_HOUSE_SECRET: !Ref HouseSecretArn
-        HANDSHAKE_RING_TOKEN_SECRET: !Ref RingTokenSecretArn
-        HANDSHAKE_PUBLIC_URL: !Ref PublicUrl
-        HANDSHAKE_DEVICE_ID: !Ref DeviceId
-        HANDSHAKE_WITNESS_MODEL: !Ref WitnessModel
-        HANDSHAKE_AGENT_RUNTIME_ARN: !Ref DisputeAgentArn
-        HANDSHAKE_TIMEZONE: !Ref HouseTimezone
+        COUNTERSIGN_TABLE: !Ref Table
+        COUNTERSIGN_BUCKET: !Ref FramesBucket
+        COUNTERSIGN_QUEUE_URL: !Ref ClaimsQueue
+        COUNTERSIGN_HOUSE_SECRET: !Ref HouseSecretArn
+        COUNTERSIGN_RING_TOKEN_SECRET: !Ref RingTokenSecretArn
+        COUNTERSIGN_PUBLIC_URL: !Ref PublicUrl
+        COUNTERSIGN_DEVICE_ID: !Ref DeviceId
+        COUNTERSIGN_WITNESS_MODEL: !Ref WitnessModel
+        COUNTERSIGN_AGENT_RUNTIME_ARN: !Ref DisputeAgentArn
+        COUNTERSIGN_TIMEZONE: !Ref HouseTimezone
 
 Resources:
   Table:
@@ -124,8 +124,8 @@ Resources:
   ApiFunction:
     Type: AWS::Serverless::Function
     Properties:
-      Description: Handshake HTTP API (claims, receipts, public keys, Ring webhooks)
-      Handler: handshake.lambda_app.handler
+      Description: Countersign HTTP API (claims, receipts, public keys, Ring webhooks)
+      Handler: countersign.lambda_app.handler
       CodeUri: ../build/lambda  # per function: `aws cloudformation package` ignores Globals
       FunctionUrlConfig:
         AuthType: NONE
@@ -147,7 +147,7 @@ Resources:
               Resource: "*"
             - Effect: Allow
               Action: bedrock-agentcore:InvokeAgentRuntime
-              Resource: !Sub "arn:${AWS::Partition}:bedrock-agentcore:${AWS::Region}:${AWS::AccountId}:runtime/handshake_dispute_agent-*"
+              Resource: !Sub "arn:${AWS::Partition}:bedrock-agentcore:${AWS::Region}:${AWS::AccountId}:runtime/countersign_dispute_agent-*"
 
   ApiPublicInvoke:
     Type: AWS::Lambda::Permission
@@ -160,8 +160,8 @@ Resources:
   WorkerFunction:
     Type: AWS::Serverless::Function
     Properties:
-      Description: Handshake retry worker (claims due for another attempt)
-      Handler: handshake.lambda_app.worker_handler
+      Description: Countersign retry worker (claims due for another attempt)
+      Handler: countersign.lambda_app.worker_handler
       CodeUri: ../build/lambda  # per function: `aws cloudformation package` ignores Globals
       Policies:
         - DynamoDBCrudPolicy: { TableName: !Ref Table }
@@ -181,7 +181,7 @@ Resources:
               Resource: "*"
             - Effect: Allow
               Action: bedrock-agentcore:InvokeAgentRuntime
-              Resource: !Sub "arn:${AWS::Partition}:bedrock-agentcore:${AWS::Region}:${AWS::AccountId}:runtime/handshake_dispute_agent-*"
+              Resource: !Sub "arn:${AWS::Partition}:bedrock-agentcore:${AWS::Region}:${AWS::AccountId}:runtime/countersign_dispute_agent-*"
       Events:
         DueClaims:
           Type: SQS
@@ -193,13 +193,13 @@ Resources:
   LabFunction:
     Type: AWS::Serverless::Function
     Properties:
-      Description: Handshake Doorstep Lab (3D page, Ring emulator, lab house), one session per visitor
-      Handler: handshake.lab.lambda_lab.handler
+      Description: Countersign Doorstep Lab (3D page, Ring emulator, lab house), one session per visitor
+      Handler: countersign.lab.lambda_lab.handler
       CodeUri: ../build/lambda  # per function: `aws cloudformation package` ignores Globals
       Environment:
         Variables:
-          HANDSHAKE_LAB_SECRET: !Ref LabSecretArn
-          HANDSHAKE_LAB_DAILY_RUNS: !Ref LabDailyRuns
+          COUNTERSIGN_LAB_SECRET: !Ref LabSecretArn
+          COUNTERSIGN_LAB_DAILY_RUNS: !Ref LabDailyRuns
       FunctionUrlConfig:
         AuthType: NONE
       Policies:
@@ -219,7 +219,7 @@ Resources:
               Resource: "*"
             - Effect: Allow
               Action: bedrock-agentcore:InvokeAgentRuntime
-              Resource: !Sub "arn:${AWS::Partition}:bedrock-agentcore:${AWS::Region}:${AWS::AccountId}:runtime/handshake_dispute_agent-*"
+              Resource: !Sub "arn:${AWS::Partition}:bedrock-agentcore:${AWS::Region}:${AWS::AccountId}:runtime/countersign_dispute_agent-*"
 
   LabPublicInvoke:
     Type: AWS::Lambda::Permission

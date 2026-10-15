@@ -8,11 +8,11 @@ import requests
 import uvicorn
 from moto import mock_aws
 
-from handshake.dispute_agent import RemoteDisputeAgent
-from handshake.lab.server import create_lab
-from handshake.lab.sessions import DynamoSessions, MemorySessions
-from handshake.receipt import HouseKey, verify
-from handshake.store import MemoryStore
+from countersign.dispute_agent import RemoteDisputeAgent
+from countersign.lab.server import create_lab
+from countersign.lab.sessions import DynamoSessions, MemorySessions
+from countersign.receipt import HouseKey, verify
+from countersign.store import MemoryStore
 
 
 def serve_lab(**options):
@@ -199,7 +199,7 @@ def test_without_an_agent_the_question_is_a_template_and_the_reply_waits(lab_url
 
 
 def test_the_lab_names_the_day_in_the_visitors_timezone(lab_url):
-    from handshake.dispute_agent import _day
+    from countersign.dispute_agent import _day
 
     tl = start(lab_url, "camera_offline")
     receipt = claim(lab_url, tl, "ORD-tz")

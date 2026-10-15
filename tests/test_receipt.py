@@ -3,7 +3,7 @@ import json
 import pytest
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
-from handshake.receipt import HouseKey, InvalidReceipt, b64u, b64u_decode, issue, jwk_thumbprint, verify
+from countersign.receipt import HouseKey, InvalidReceipt, b64u, b64u_decode, issue, jwk_thumbprint, verify
 
 BODY = {"order_id": "ORD-1", "merchant": "shop", "verdict": "delivered",
         "evidence": [{"kind": "snapshot_after", "sha256": "ab" * 32}]}
@@ -42,7 +42,7 @@ def test_unknown_key_fails():
 def test_alg_none_is_refused():
     key = HouseKey.generate()
     _, payload, _ = make(key).split(".")
-    header = b64u(json.dumps({"alg": "none", "kid": key.kid, "typ": "handshake-receipt+jwt"}).encode())
+    header = b64u(json.dumps({"alg": "none", "kid": key.kid, "typ": "countersign-receipt+jwt"}).encode())
     with pytest.raises(InvalidReceipt, match="alg"):
         verify(f"{header}.{payload}.", jwks(key))
 

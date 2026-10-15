@@ -2,18 +2,18 @@ import hashlib
 
 import pytest
 
-from handshake.episode import LOOK_AFTER_CLAIM_MS, Claim
-from handshake.house import SETTLE_MS, House, HouseConfig, NotReady
-from handshake.receipt import HouseKey, verify
-from handshake.ring import HistoryEvent, Media, RingError
-from handshake.store import MemoryStore
-from handshake.verdict import WitnessReport
-from handshake.witness import WitnessError
+from countersign.episode import LOOK_AFTER_CLAIM_MS, Claim
+from countersign.house import SETTLE_MS, House, HouseConfig, NotReady
+from countersign.receipt import HouseKey, verify
+from countersign.ring import HistoryEvent, Media, RingError
+from countersign.store import MemoryStore
+from countersign.verdict import WitnessReport
+from countersign.witness import WitnessError
 
 T0 = 1_790_000_000_000
 JPEG_BEFORE = b"\xff\xd8before"
 JPEG_AFTER = b"\xff\xd8after"
-CONFIG = HouseConfig("h1", "https://handshake.example/h/h1", "ava1.ring.device.FRONT", "salt")
+CONFIG = HouseConfig("h1", "https://countersign.example/h/h1", "ava1.ring.device.FRONT", "salt")
 CLAIM = Claim("ORD-9", "shop", T0 + 120_000, carrier="Delhivery")
 AFTER_WINDOW = T0 + 120_000 + LOOK_AFTER_CLAIM_MS + SETTLE_MS
 

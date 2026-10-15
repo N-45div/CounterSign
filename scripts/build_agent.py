@@ -1,7 +1,7 @@
 """Bundle the dispute agent for AgentCore Runtime direct code deployment.
 
 Linux ARM64 wheels for Python 3.12 (AgentCore runs on Graviton), the
-agentcore/app.py entry point, and only the handshake modules the agent needs:
+agentcore/app.py entry point, and only the countersign modules the agent needs:
 no store, no lambda handlers, nothing that could sign.
 
     python scripts/build_agent.py   -> build/agent.zip
@@ -32,9 +32,9 @@ def main() -> int:
         "--platform", "manylinux2014_aarch64", "--platform", "manylinux_2_28_aarch64",
         "--only-binary=:all:", *DEPS,
     ], check=True)
-    (OUT / "handshake").mkdir()
+    (OUT / "countersign").mkdir()
     for name in MODULES:
-        shutil.copy(ROOT / "handshake" / name, OUT / "handshake" / name)
+        shutil.copy(ROOT / "countersign" / name, OUT / "countersign" / name)
     shutil.copy(ROOT / "agentcore" / "app.py", OUT / "app.py")
     for junk in list(OUT.rglob("__pycache__")):
         shutil.rmtree(junk, ignore_errors=True)

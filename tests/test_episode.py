@@ -1,5 +1,5 @@
-from handshake.episode import SNAPSHOT_MARGIN_MS, Claim, observe
-from handshake.ring import HistoryEvent
+from countersign.episode import SNAPSHOT_MARGIN_MS, Claim, observe
+from countersign.ring import HistoryEvent
 
 T0 = 1_790_000_000_000  # an arbitrary 10:00:00
 S = 1_000

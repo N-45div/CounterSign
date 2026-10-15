@@ -1,7 +1,7 @@
 """Settling inconclusive claims with the resident's own word.
 
 When the camera cannot settle a claim (offline, a parcel already there, text
-in the frame), Handshake asks the resident one plain question and turns the
+in the frame), Countersign asks the resident one plain question and turns the
 answer into a second signed receipt, a resolution, that points back at the
 first. The dispute agent (dispute_agent.py) words the question and reads the
 resident's free-text reply; everything that gets signed is decided here, in

@@ -17,14 +17,14 @@ from pathlib import Path
 import boto3
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from handshake.tokens import clean_token  # noqa: E402
+from countersign.tokens import clean_token  # noqa: E402
 
 
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--token", default=os.environ.get("RING_TOKEN", ""))
     parser.add_argument("--region", default="us-east-1")
-    parser.add_argument("--secret", default="handshake/ring-token")
+    parser.add_argument("--secret", default="countersign/ring-token")
     args = parser.parse_args()
     token = clean_token(args.token)
     if not token.startswith("eyJ") or token.count(".") != 2:

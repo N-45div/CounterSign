@@ -5,9 +5,9 @@ import boto3
 import pytest
 from moto import mock_aws
 
-from handshake import lambda_app
-from handshake.api import hash_key
-from handshake.receipt import HouseKey
+from countersign import lambda_app
+from countersign.api import hash_key
+from countersign.receipt import HouseKey
 
 MERCHANT_KEY = "hsk_shop_abc"
 RESIDENT_KEY = "hsr_resident_abc"
@@ -53,9 +53,9 @@ def deployed(monkeypatch):
             "resident_key_sha256": hash_key(RESIDENT_KEY),
         }))
         sm.create_secret(Name="hs/ring-token", SecretString="not-set")
-        for k, v in {"HANDSHAKE_TABLE": "hs", "HANDSHAKE_BUCKET": "hs-frames", "HANDSHAKE_QUEUE_URL": queue_url,
-                     "HANDSHAKE_HOUSE_SECRET": "hs/house", "HANDSHAKE_RING_TOKEN_SECRET": "hs/ring-token",
-                     "HANDSHAKE_PUBLIC_URL": "https://abc.lambda-url.us-east-1.on.aws"}.items():
+        for k, v in {"COUNTERSIGN_TABLE": "hs", "COUNTERSIGN_BUCKET": "hs-frames", "COUNTERSIGN_QUEUE_URL": queue_url,
+                     "COUNTERSIGN_HOUSE_SECRET": "hs/house", "COUNTERSIGN_RING_TOKEN_SECRET": "hs/ring-token",
+                     "COUNTERSIGN_PUBLIC_URL": "https://abc.lambda-url.us-east-1.on.aws"}.items():
             monkeypatch.setenv(k, v)
         clear_caches()
         yield key, queue_url
@@ -123,8 +123,8 @@ def test_scheduler_delay_values(monkeypatch):
 
 
 def inconclusive_claim(key, claim_id="clm_7"):
-    from handshake.desk import ClaimRecord, ClaimStatus
-    from handshake.receipt import issue
+    from countersign.desk import ClaimRecord, ClaimStatus
+    from countersign.receipt import issue
 
     now = int(time.time() * 1000)
     token = issue(key, {"verdict": "inconclusive", "reason": "camera_not_recording", "visit": None},
@@ -149,7 +149,7 @@ def fake_agentcore(monkeypatch, up=True):
             return {"interpretation": {"outcome": "not_received", "quote": payload["exchange"]["reply"], "note": ""}}
         return invoke
 
-    monkeypatch.setenv("HANDSHAKE_AGENT_RUNTIME_ARN", "arn:aws:bedrock-agentcore:us-east-1:123:runtime/agent-x")
+    monkeypatch.setenv("COUNTERSIGN_AGENT_RUNTIME_ARN", "arn:aws:bedrock-agentcore:us-east-1:123:runtime/agent-x")
     monkeypatch.setattr(lambda_app, "agentcore_invoker", invoker)
     lambda_app.dispute_agent.cache_clear()
     return payloads

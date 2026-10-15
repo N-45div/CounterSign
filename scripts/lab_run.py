@@ -1,7 +1,7 @@
 """Run every Doorstep Lab scenario through a local house and report the verdicts.
 
 Starts the Ring emulator on a local port, points an in-memory house at it with
-Handshake's unchanged Ring client, plays each scenario, submits the courier's
+Countersign's unchanged Ring client, plays each scenario, submits the courier's
 claim, and prints the verdict next to the one the scenario expects.
 
     python scripts/lab_run.py                   # Amazon Nova + Textract (needs AWS credentials)
@@ -27,15 +27,15 @@ import uvicorn
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from handshake.desk import Desk  # noqa: E402
-from handshake.house import House, HouseConfig  # noqa: E402
-from handshake.lab.emulator import LabState, create_emulator, send_status_webhooks  # noqa: E402
-from handshake.lab.scenarios import SCENARIOS  # noqa: E402
-from handshake.receipt import HouseKey  # noqa: E402
-from handshake.ring import RingClient  # noqa: E402
-from handshake.store import MemoryStore  # noqa: E402
-from handshake.verdict import WitnessReport  # noqa: E402
-from handshake.webhooks import verified_event  # noqa: E402
+from countersign.desk import Desk  # noqa: E402
+from countersign.house import House, HouseConfig  # noqa: E402
+from countersign.lab.emulator import LabState, create_emulator, send_status_webhooks  # noqa: E402
+from countersign.lab.scenarios import SCENARIOS  # noqa: E402
+from countersign.receipt import HouseKey  # noqa: E402
+from countersign.ring import RingClient  # noqa: E402
+from countersign.store import MemoryStore  # noqa: E402
+from countersign.verdict import WitnessReport  # noqa: E402
+from countersign.webhooks import verified_event  # noqa: E402
 
 TOKEN = "lab-run"
 KEY = "lab-run-hmac"
@@ -77,8 +77,8 @@ def main() -> int:
     if args.witness == "nova":
         import boto3
 
-        from handshake.doorman import TextractOcr
-        from handshake.witness import NovaWitness
+        from countersign.doorman import TextractOcr
+        from countersign.witness import NovaWitness
         session = boto3.Session(region_name="us-east-1")
         witness = NovaWitness(session.client("bedrock-runtime"), args.model, TextractOcr(session.client("textract")))
     else:

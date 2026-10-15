@@ -2,8 +2,8 @@ import importlib.util
 import sys
 from pathlib import Path
 
-from handshake.doorman import scan
-from handshake.verdict import WitnessReport
+from countersign.doorman import scan
+from countersign.verdict import WitnessReport
 
 SPEC = importlib.util.spec_from_file_location("eval_injection", Path(__file__).parent.parent / "scripts" / "eval_injection.py")
 ev = importlib.util.module_from_spec(SPEC)

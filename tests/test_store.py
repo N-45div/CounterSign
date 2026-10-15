@@ -1,5 +1,5 @@
-from handshake.episode import Window
-from handshake.store import MemoryStore, StoredReceipt, coverage_from_log
+from countersign.episode import Window
+from countersign.store import MemoryStore, StoredReceipt, coverage_from_log
 
 W = Window(1_000, 11_000)
 

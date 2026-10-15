@@ -19,11 +19,11 @@ import boto3
 from strands.models import BedrockModel
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from handshake.desk import ClaimRecord, ClaimStatus  # noqa: E402
-from handshake.dispute_agent import DisputeAgent  # noqa: E402
-from handshake.disputes import Disputes  # noqa: E402
-from handshake.receipt import HouseKey, issue, verify  # noqa: E402
-from handshake.store import MemoryStore  # noqa: E402
+from countersign.desk import ClaimRecord, ClaimStatus  # noqa: E402
+from countersign.dispute_agent import DisputeAgent  # noqa: E402
+from countersign.disputes import Disputes  # noqa: E402
+from countersign.receipt import HouseKey, issue, verify  # noqa: E402
+from countersign.store import MemoryStore  # noqa: E402
 
 REPLIES = [
     "haan mil gaya, guard ke paas tha",

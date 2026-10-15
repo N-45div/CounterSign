@@ -1,8 +1,8 @@
 import pytest
 
-from handshake.episode import Claim, observe
-from handshake.ring import HistoryEvent
-from handshake.verdict import Coverage, Evidence, Verdict, WitnessReport, decide, device_ref, receipt_body
+from countersign.episode import Claim, observe
+from countersign.ring import HistoryEvent
+from countersign.verdict import Coverage, Evidence, Verdict, WitnessReport, decide, device_ref, receipt_body
 
 T0 = 1_790_000_000_000
 FULL = Coverage(complete=True)

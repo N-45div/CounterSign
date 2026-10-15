@@ -1,7 +1,7 @@
 """Build the Lambda bundle in build/lambda without Docker.
 
 pip fetches Linux ARM64 wheels for Python 3.12 (the Lambda runtime), then the
-handshake package is copied next to them. boto3 is left out: the Lambda
+countersign package is copied next to them. boto3 is left out: the Lambda
 runtime provides it.
 
     python scripts/build_lambda.py
@@ -32,7 +32,7 @@ def main() -> int:
         "--only-binary=:all:",
         *RUNTIME_DEPS,
     ], check=True)
-    shutil.copytree(ROOT / "handshake", OUT / "handshake", ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
+    shutil.copytree(ROOT / "countersign", OUT / "countersign", ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
     for junk in OUT.glob("*.dist-info"):
         shutil.rmtree(junk)
     size = sum(f.stat().st_size for f in OUT.rglob("*") if f.is_file())

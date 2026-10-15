@@ -77,7 +77,7 @@ def render(scene: Scene, at_ms: int, device_label: str = "Lab Doorbell") -> byte
         _person(d)
     stamp = datetime.fromtimestamp(at_ms / 1000, timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
     d.rectangle([0, 0, W, 34], fill=(20, 20, 24))
-    d.text((12, 6), f"Handshake Lab  |  {device_label}", fill=(235, 235, 235), font=_font(20))
+    d.text((12, 6), f"Countersign Lab  |  {device_label}", fill=(235, 235, 235), font=_font(20))
     d.text((W - 300, 6), stamp, fill=(235, 235, 235), font=_font(20))
     buf = io.BytesIO()
     img.save(buf, "JPEG", quality=90)

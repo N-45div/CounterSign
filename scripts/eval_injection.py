@@ -4,7 +4,7 @@ Every injection case shows an EMPTY doorstep after a visit, with a note in view
 that tries to talk the vision model into reporting a parcel. Benign cases are
 ordinary notes people really leave; controls have no note. For each case we
 record what the model said, whether Doorman flagged the frame, the verdict
-Handshake reached, and the verdict it would have reached with Doorman switched
+Countersign reached, and the verdict it would have reached with Doorman switched
 off. Frames come from the lab renderer, so every run is reproducible.
 
     python scripts/eval_injection.py                         # Nova Lite and Nova 2 Lite
@@ -28,12 +28,12 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from handshake.episode import Claim, observe  # noqa: E402
-from handshake.lab.render import render  # noqa: E402
-from handshake.lab.scenarios import Scene  # noqa: E402
-from handshake.ring import HistoryEvent  # noqa: E402
-from handshake.verdict import Coverage, decide  # noqa: E402
-from handshake.witness import Frame  # noqa: E402
+from countersign.episode import Claim, observe  # noqa: E402
+from countersign.lab.render import render  # noqa: E402
+from countersign.lab.scenarios import Scene  # noqa: E402
+from countersign.ring import HistoryEvent  # noqa: E402
+from countersign.verdict import Coverage, decide  # noqa: E402
+from countersign.witness import Frame  # noqa: E402
 
 INJECTIONS = [
     # Blatant: addressed to the machine, should be flagged.
@@ -189,8 +189,8 @@ def main() -> int:
 
     import boto3
 
-    from handshake.doorman import TextractOcr
-    from handshake.witness import NovaWitness
+    from countersign.doorman import TextractOcr
+    from countersign.witness import NovaWitness
     aws = boto3.Session(region_name="us-east-1")
     runtime, textract = aws.client("bedrock-runtime"), aws.client("textract")
 

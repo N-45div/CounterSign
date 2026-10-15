@@ -1,7 +1,7 @@
 """Give the house a resident key, which turns on the resident's question endpoints.
 
 A new key is generated and appended to a file outside the repo
-(~/.secrets/handshake.env); only its SHA-256 goes into the house secret, and
+(~/.secrets/countersign.env); only its SHA-256 goes into the house secret, and
 the key itself is never printed. The API picks it up on its next cold start
 (a redeploy forces one).
 
@@ -19,10 +19,10 @@ from pathlib import Path
 import boto3
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from handshake.api import hash_key  # noqa: E402
+from countersign.api import hash_key  # noqa: E402
 
-HOUSE_SECRET = "handshake/house"
-LOCAL_KEYS = Path.home() / ".secrets" / "handshake.env"
+HOUSE_SECRET = "countersign/house"
+LOCAL_KEYS = Path.home() / ".secrets" / "countersign.env"
 
 
 def new_resident_key() -> str:
@@ -32,7 +32,7 @@ def new_resident_key() -> str:
 def save_locally(key: str) -> None:
     LOCAL_KEYS.parent.mkdir(parents=True, exist_ok=True)
     with LOCAL_KEYS.open("a", encoding="utf-8") as f:
-        f.write(f"HANDSHAKE_RESIDENT_KEY={key}\n")
+        f.write(f"COUNTERSIGN_RESIDENT_KEY={key}\n")
 
 
 def main() -> int:

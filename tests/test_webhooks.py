@@ -4,7 +4,7 @@ import json
 
 import pytest
 
-from handshake.webhooks import InvalidWebhook, link_nonce, parse_event, verified_event, verify_signature
+from countersign.webhooks import InvalidWebhook, link_nonce, parse_event, verified_event, verify_signature
 
 KEY = "test-signing-key"
 

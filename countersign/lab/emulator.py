@@ -1,10 +1,10 @@
 """A Ring Partner API emulator that plays a lab scenario.
 
-It answers the endpoints Handshake uses in the shapes the real API returned on
+It answers the endpoints Countersign uses in the shapes the real API returned on
 the Ring Developer Playground (Oct 2026): JSON:API device and history
 resources, media downloads that answer 303 and then serve the file, 416
 MEDIA_NOT_FOUND when there is no frame, and an empty-bodied 401 for a bad
-token. Handshake's RingClient talks to it unchanged; only the base URL
+token. Countersign's RingClient talks to it unchanged; only the base URL
 differs.
 
 Recording follows a Ring doorbell: frames exist during motion events (one a
@@ -38,10 +38,10 @@ MAX_UPLOAD_BYTES = 1_500_000
 
 @dataclass(frozen=True)
 class LabDevice:
-    id: str = "ava1.ring.device.HANDSHAKELAB0DOORBELL"
+    id: str = "ava1.ring.device.COUNTERSIGNLAB0DOORBELL"
     name: str = "Lab Doorbell"
-    location_id: str = "ava1.ring.location.HANDSHAKELAB"
-    account_id: str = "ava1.ring.account.HANDSHAKELAB"
+    location_id: str = "ava1.ring.location.COUNTERSIGNLAB"
+    account_id: str = "ava1.ring.account.COUNTERSIGNLAB"
 
 
 @dataclass
@@ -191,7 +191,7 @@ def send_status_webhooks(world: LabWorld, url: str, signing_key: str, post=reque
 def ring_api(resolve: Callable[[str], "LabWorld | None"], app: FastAPI | None = None) -> FastAPI:
     """The Ring Partner API surface. `resolve` maps a bearer token to the world it may see,
     the way a Ring user's token only ever sees that user's devices."""
-    app = app or FastAPI(title="Handshake Lab: Ring Partner API emulator")
+    app = app or FastAPI(title="Countersign Lab: Ring Partner API emulator")
 
     def token_of(authorization: str | None) -> str:
         auth = authorization or ""
@@ -307,7 +307,7 @@ def check_frame(image: bytes) -> JSONResponse | None:
 
 def create_emulator(state: LabState, tokens: set[str] | None = None) -> FastAPI:
     """One world at a time, for tests and scripts: the Ring API plus controls to play scenarios."""
-    app = FastAPI(title="Handshake Lab: Ring Partner API emulator")
+    app = FastAPI(title="Countersign Lab: Ring Partner API emulator")
 
     @app.get("/lab/scenarios")
     def scenarios():

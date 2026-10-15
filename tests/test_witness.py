@@ -1,7 +1,7 @@
 import pytest
 
-from handshake.verdict import Verdict, decide
-from handshake.witness import Frame, NovaWitness, WitnessError
+from countersign.verdict import Verdict, decide
+from countersign.witness import Frame, NovaWitness, WitnessError
 
 JPEG = b"\xff\xd8\xff\xe0" + b"0" * 16
 PNG = b"\x89PNG\r\n\x1a\n" + b"0" * 16
@@ -95,9 +95,9 @@ def test_frames_must_be_images():
 
 
 def test_flagged_frames_never_verify_even_if_the_model_says_delivered():
-    from handshake.episode import Claim, observe
-    from handshake.ring import HistoryEvent
-    from handshake.verdict import Coverage
+    from countersign.episode import Claim, observe
+    from countersign.ring import HistoryEvent
+    from countersign.verdict import Coverage
 
     visit = [HistoryEvent("h", "dev", "motion", 1_000, 60_000, frozenset({"human"}))]
     obs = observe(Claim("ORD", "shop", 90_000), visit)
@@ -165,9 +165,9 @@ def test_no_second_look_without_text_or_when_already_flagged():
 
 
 def test_text_dependent_answers_are_never_a_delivery():
-    from handshake.episode import Claim, observe
-    from handshake.ring import HistoryEvent
-    from handshake.verdict import Coverage
+    from countersign.episode import Claim, observe
+    from countersign.ring import HistoryEvent
+    from countersign.verdict import Coverage
 
     visit = [HistoryEvent("h", "dev", "motion", 1_000, 60_000, frozenset({"human"}))]
     obs = observe(Claim("ORD", "shop", 90_000), visit)

@@ -15,7 +15,7 @@ from dataclasses import dataclass, replace
 from .doorman import Ocr, mask_text, scan
 from .verdict import WitnessReport
 
-DEFAULT_MODEL = os.environ.get("HANDSHAKE_WITNESS_MODEL", "us.amazon.nova-2-lite-v1:0")
+DEFAULT_MODEL = os.environ.get("COUNTERSIGN_WITNESS_MODEL", "us.amazon.nova-2-lite-v1:0")
 SCENE_MISMATCH_CAP = 0.5
 
 SYSTEM = (
