@@ -56,7 +56,8 @@ question and the reply, then call record_interpretation exactly once:
 - outcome: received, not_received, or unsure (use unsure when the reply does not say, or hedges)
 - quote: copy the exact words from the reply that show the outcome, character for character,
   in the reply's own language. Never translate or rephrase the quote.
-- note: a few English words on any detail that matters (left with a guard, damaged, wrong item)
+- note: a few English words on a detail the reply itself states, such as where it was left, damage or a
+  wrong item. Leave it empty when the reply states none; never add a detail the resident did not write.
 If the tool refuses your quote, copy the words again exactly as written and retry.
 Reply with one line saying what you recorded."""
 
@@ -146,7 +147,7 @@ def interpretation_tools(exchange: dict, out: dict):
         Args:
             outcome: received, not_received or unsure
             quote: the exact words from the reply that show the outcome, copied character for character
-            note: a few English words on any detail that matters
+            note: a detail the reply itself states, in a few English words; empty if none
         """
         out["attempts"] = out.get("attempts", 0) + 1
         if out["attempts"] > 3:
