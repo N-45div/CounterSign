@@ -22,7 +22,15 @@
     .intro { color: var(--muted); margin: 0 0 8px; }
     h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); font-weight: 600;
           margin: 36px 0 12px; padding-bottom: 8px; border-bottom: 1px solid var(--line); }
-    article { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 18px 20px; margin: 0 0 14px; }
+    article, .card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 18px 20px; margin: 0 0 14px; }
+    .card p { margin: 0 0 10px; font-size: 15px; }
+    .card p:last-child { margin-bottom: 0; }
+    .verdict { display: flex; gap: 14px; align-items: flex-start; }
+    .grade { flex: none; min-width: 40px; padding: 4px 8px; border-radius: 8px; background: var(--accent); color: #fff;
+              font: 700 16px ui-monospace, Consolas, monospace; text-align: center; }
+    ol.pros { margin: 0; padding-left: 22px; font-size: 15px; }
+    ol.pros li { margin: 0 0 8px; }
+    ol.pros li:last-child { margin-bottom: 0; }
     h3 { font-size: 18px; margin: 0 0 12px; display: flex; gap: 10px; align-items: baseline; }
     .num { font: 600 13px ui-monospace, Consolas, monospace; color: var(--accent); min-width: 22px; }
     dl { display: grid; grid-template-columns: 170px 1fr; gap: 8px 16px; margin: 0; font-size: 15px; }
@@ -43,6 +51,25 @@
   <main>
     <h1>Friction log</h1>
     <p class="intro">Build, Ship, Shape: Amazon Developer Hackathon, Ring track. Every entry below happened while building Countersign, which issues signed doorstep delivery receipts from the Ring Partner API and AWS.</p>
+    <h2>Bottom line</h2>
+    <section class="card">
+      <p class="verdict"><span class="grade">B</span><span><strong>Ring Partner API.</strong> The API was predictable and quick to start with, but the Playground cannot stage a delivery, which is the one thing a package app most needs to test.</span></p>
+      <p class="verdict"><span class="grade">B+</span><span><strong>AWS.</strong> Bedrock, Textract, AgentCore and Lambda all did their jobs. The friction was in errors that give no hint (a silent 403, a deploy that succeeds with no code) and in Nova following text written inside an image.</span></p>
+    </section>
+    <h2>Who I am and what I tested</h2>
+    <section class="card">
+      <p>Solo developer, first time with the Ring Partner API, used AWS before. Windows 11, Python 3.12, boto3, us-east-1. Ring Developer Playground from September 23 to October 20, 2026. Amazon Nova Lite and Nova 2 Lite on Bedrock, Strands Agents 1.60, Bedrock AgentCore Runtime with direct code deploy.</p>
+    </section>
+    <h2>What worked well</h2>
+    <section class="card">
+      <ol class="pros">
+        <li>The Playground gave me a real device and a token in minutes, with no app registration. I had real answers from users/me, devices and event history in my first session.</li>
+        <li>Ring&#x27;s JSON:API responses were consistent. History paging and snapshots by timestamp worked as documented, and the HMAC webhook scheme is simple to verify.</li>
+        <li>Nova with a forced tool call at temperature 0 always answered in the shape I asked for, so my code could decide from fields, not prose. A full check took about 7 seconds, and a 60-case eval run cost a few cents.</li>
+        <li>AgentCore Runtime deployed my agent from a zip in S3 and was ready on the first try. Updates kept the same ARN.</li>
+        <li>SQS delivery delays made a clean retry clock for claims that Ring had not filed yet.</li>
+      </ol>
+    </section>
     <h2>Ring Partner API And Ring Developer Playground</h2>
     <article id="entry-1">
       <h3><span class="num">1</span>The Playground cannot stage a delivery, and there is no package event</h3>
