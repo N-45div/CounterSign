@@ -61,6 +61,8 @@ flowchart TB
    A frame that carries text aimed at the AI is never a delivery, even when the parcel is real.
 6. **Sign.** The receipt is an Ed25519 compact JWS. The house publishes its public key at `/.well-known/jwks.json`, with the RFC 7638 thumbprint as `kid`.
 
+Diagrams of every part, the AWS layout, a claim end to end, the dispute flow and the storage keys are in [ARCHITECTURE.md](ARCHITECTURE.md).
+
 ## The receipt
 
 A real one from the hosted lab, decoded (header `{"alg": "EdDSA", "typ": "countersign-receipt+jwt", "kid": ...}`):
