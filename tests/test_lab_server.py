@@ -206,3 +206,9 @@ def test_the_lab_names_the_day_in_the_visitors_timezone(lab_url):
     q = requests.post(f"{lab_url}/lab/s/{tl['session']}/claims/{receipt['claim_id']}/ask",
                       json={"timezone": "Pacific/Kiritimati"}, timeout=30).json()
     assert q["text"].endswith(f"arrive on {_day(tl['claim_at_ms'], 'Pacific/Kiritimati')}?")
+
+
+def test_the_friction_log_is_served_as_a_page(lab_url):
+    page = requests.get(f"{lab_url}/friction", timeout=10)
+    assert page.status_code == 200 and page.headers["content-type"].startswith("text/html")
+    assert "<title>Countersign Friction Log</title>" in page.text and page.text.count("<article") == 13

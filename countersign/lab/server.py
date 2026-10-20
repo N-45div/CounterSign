@@ -21,6 +21,7 @@ for one person and on Lambda for many:
     POST /lab/s/{sid}/claims/{claim_id}/ask           an inconclusive claim goes to the resident
     POST /lab/s/{sid}/questions/{question_id}/answer  the resident's reply -> signed resolution
     GET  /lab/jwks.json                     the lab house's public keys
+    GET  /friction                          the friction log from building Countersign
     /v1/..., /lab/media/...                 the Ring Partner API emulator (by bearer token)
 
 The house's Ring client calls the emulator over HTTP with the session's token,
@@ -36,7 +37,7 @@ from pathlib import Path
 from typing import Callable
 
 from fastapi import FastAPI, Header, Request
-from fastapi.responses import JSONResponse, Response
+from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
@@ -247,6 +248,11 @@ def create_lab(
     @app.get("/.well-known/jwks.json")
     def jwks():
         return JSONResponse({"keys": [key.public_jwk()]}, headers={"Cache-Control": "public, max-age=300"})
+
+    @app.get("/friction")
+    def friction():
+        return FileResponse(STATIC / "friction.html", media_type="text/html",
+                            headers={"Cache-Control": "public, max-age=300"})
 
     ring_api(sessions.world_for_token, app)
     if STATIC.exists():

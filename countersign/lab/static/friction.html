@@ -1,0 +1,194 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Countersign Friction Log</title>
+  <meta name="description" content="What got in the way while building Countersign on the Ring Partner API and AWS, with the workaround and a suggestion for each.">
+  <style>
+    :root { --bg: #f4f2ee; --panel: #ffffff; --ink: #1d1f24; --muted: #6b6f78; --line: #e3e0da; --accent: #2f5bd3;
+             --high: #b3261e; --medium: #b26b00; --low: #6b6f78;
+             font-family: Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--bg); color: var(--ink); line-height: 1.55; }
+    .bar { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 14px 24px;
+            border-bottom: 1px solid var(--line); background: var(--panel); }
+    .brand { font-weight: 650; font-size: 17px; display: flex; align-items: center; gap: 8px; }
+    .mark { width: 14px; height: 14px; border-radius: 4px; background: var(--accent); display: inline-block; }
+    .brand .muted, .muted { color: var(--muted); font-weight: 400; }
+    .bar a { color: var(--accent); text-decoration: none; font-size: 14px; }
+    main { max-width: 860px; margin: 0 auto; padding: 32px 16px 64px; }
+    h1 { font-size: 30px; margin: 0 0 10px; letter-spacing: -0.01em; }
+    .intro { color: var(--muted); margin: 0 0 8px; }
+    h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); font-weight: 600;
+          margin: 36px 0 12px; padding-bottom: 8px; border-bottom: 1px solid var(--line); }
+    article { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 18px 20px; margin: 0 0 14px; }
+    h3 { font-size: 18px; margin: 0 0 12px; display: flex; gap: 10px; align-items: baseline; }
+    .num { font: 600 13px ui-monospace, Consolas, monospace; color: var(--accent); min-width: 22px; }
+    dl { display: grid; grid-template-columns: 170px 1fr; gap: 8px 16px; margin: 0; font-size: 15px; }
+    dt { color: var(--muted); font-weight: 600; font-size: 13px; padding-top: 2px; }
+    dd { margin: 0; overflow-wrap: anywhere; }
+    .sev.high { color: var(--high); font-weight: 600; }
+    .sev.medium { color: var(--medium); font-weight: 600; }
+    .sev.low { color: var(--low); font-weight: 600; }
+    footer { color: var(--muted); font-size: 13px; margin-top: 32px; }
+    @media (max-width: 640px) { dl { grid-template-columns: 1fr; gap: 2px; } dd { margin-bottom: 8px; } }
+  </style>
+</head>
+<body>
+  <header class="bar">
+    <div class="brand"><span class="mark"></span>Countersign <span class="muted">Friction log</span></div>
+    <a href="/">Open the Doorstep Lab</a>
+  </header>
+  <main>
+    <h1>Friction log</h1>
+    <p class="intro">Build, Ship, Shape: Amazon Developer Hackathon, Ring track. Every entry below happened while building Countersign, which issues signed doorstep delivery receipts from the Ring Partner API and AWS.</p>
+    <h2>Ring Partner API And Ring Developer Playground</h2>
+    <article id="entry-1">
+      <h3><span class="num">1</span>The Playground cannot stage a delivery, and there is no package event</h3>
+      <dl>
+        <dt>Task attempted</dt><dd>Show a parcel delivery end to end on the Ring Developer Playground.</dd>
+        <dt>Steps taken</dt><dd>Read the event history for the Playground device after using &quot;Simulate live view&quot; (Package and Vehicle), then downloaded snapshots and clips around those events.</dd>
+        <dt>Expected vs actual</dt><dd>I expected a way to produce a person arriving, leaving a box and going, or a package event. Actual: event history only has motion (human, vehicle, animal, other), ding and on_demand, with no package event. The Package footage shows the box in every frame, with no arrival and no removal, and the live views are filed as on_demand events, not motion.</dd>
+        <dt>Severity</dt><dd class="sev high">High for any delivery or package use case.</dd>
+        <dt>Workaround</dt><dd>I built my own Ring-shaped emulator and a 3D simulated doorstep to cover the delivery scenarios. The Playground only proves the integration.</dd>
+        <dt>Actionable suggestion</dt><dd>Add a Playground scenario where a person arrives, leaves a box and leaves (motion events plus snapshots before and after), and a package-delivered event or detection in the history.</dd>
+      </dl>
+    </article>
+    <article id="entry-2">
+      <h3><span class="num">2</span>The event_types filter is ignored in the Playground</h3>
+      <dl>
+        <dt>Task attempted</dt><dd>Read only person and vehicle motion events for a delivery window.</dd>
+        <dt>Steps taken</dt><dd>GET the device history with event_types=motion.vehicle, then with each other motion subtype.</dd>
+        <dt>Expected vs actual</dt><dd>I expected only that subtype. Actual: every request also returned the on_demand events created by &quot;Simulate live view&quot;.</dd>
+        <dt>Severity</dt><dd class="sev medium">Medium. An integration that trusts the filter will count live views as visits at the door.</dd>
+        <dt>Workaround</dt><dd>I filter on the client and keep only events whose event_type is &quot;motion&quot;.</dd>
+        <dt>Actionable suggestion</dt><dd>Honour the filter in the Playground, or document that it is ignored there.</dd>
+      </dl>
+    </article>
+    <article id="entry-3">
+      <h3><span class="num">3</span>A snapshot near the end of an event returns 422 GRECO_NO_VALID_KEY</h3>
+      <dl>
+        <dt>Task attempted</dt><dd>Download the &quot;after&quot; frame at the end of a visit.</dd>
+        <dt>Steps taken</dt><dd>POST media/image/download with type at_timestamp and a timestamp near the event&#x27;s end.</dd>
+        <dt>Expected vs actual</dt><dd>I expected the image, or a clear &quot;no frame at this moment&quot;. Actual: 422 GRECO_NO_VALID_KEY, &quot;No valid Greco key available for decryption&quot;.</dd>
+        <dt>Severity</dt><dd class="sev medium">Medium. The error reads like an internal key failure and gives no hint about what to do.</dd>
+        <dt>Workaround</dt><dd>I fall back to type latest_in_range over a short window.</dd>
+        <dt>Actionable suggestion</dt><dd>Return a documented error that says no frame exists at that moment and suggests latest_in_range.</dd>
+      </dl>
+    </article>
+    <article id="entry-4">
+      <h3><span class="num">4</span>Media download redirects with 303, not the documented 301</h3>
+      <dl>
+        <dt>Task attempted</dt><dd>Download a snapshot for a moment in the event history.</dd>
+        <dt>Steps taken</dt><dd>POST media/image/download with type at_timestamp.</dd>
+        <dt>Expected vs actual</dt><dd>The docs describe a 301 redirect to the file. Actual: 303 See Other. On some moments the follow-up returned 416 MEDIA_NOT_FOUND, &quot;No media found in time range&quot;, and early on, with an empty history, both image and video downloads returned 416.</dd>
+        <dt>Severity</dt><dd class="sev low">Low.</dd>
+        <dt>Workaround</dt><dd>My client follows any 30x and treats 416 as &quot;no frame for this moment&quot;.</dd>
+        <dt>Actionable suggestion</dt><dd>Document the 303 and the 416 body.</dd>
+      </dl>
+    </article>
+    <article id="entry-5">
+      <h3><span class="num">5</span>Undocumented cv_detections on history events</h3>
+      <dl>
+        <dt>Task attempted</dt><dd>Understand the full shape of a history event.</dd>
+        <dt>Steps taken</dt><dd>Read the raw JSON:API responses from the history endpoint.</dd>
+        <dt>Expected vs actual</dt><dd>I expected the fields in the docs. Actual: each on_demand event also carries a relationships.cv_detections list, empty in the Playground, that the docs do not mention.</dd>
+        <dt>Severity</dt><dd class="sev low">Low.</dd>
+        <dt>Workaround</dt><dd>None needed; I ignore it.</dd>
+        <dt>Actionable suggestion</dt><dd>Document cv_detections. If it can carry package detections, that is the most useful field a delivery app could get.</dd>
+      </dl>
+    </article>
+    <article id="entry-6">
+      <h3><span class="num">6</span>Playground tokens last 30 minutes, with no refresh</h3>
+      <dl>
+        <dt>Task attempted</dt><dd>Keep a deployed test service talking to the Playground device.</dd>
+        <dt>Steps taken</dt><dd>Generated a token on the Playground page and stored it in AWS Secrets Manager for the service.</dd>
+        <dt>Expected vs actual</dt><dd>I expected a way to keep a test service working for a day. Actual: each token lasts 30 minutes with no refresh, so the service stops working until someone pastes a new token. One token I copied from a screenshot failed with 401 because of a transcription error; pasting the text worked.</dd>
+        <dt>Severity</dt><dd class="sev medium">Medium.</dd>
+        <dt>Workaround</dt><dd>The service rereads the token from Secrets Manager every minute, and a script sets a new one.</dd>
+        <dt>Actionable suggestion</dt><dd>A longer-lived Playground token, or a refresh token for test apps.</dd>
+      </dl>
+    </article>
+    <article id="entry-7">
+      <h3><span class="num">7</span>Webhooks cannot be tested without a registered app</h3>
+      <dl>
+        <dt>Task attempted</dt><dd>Test how my service handles the camera going offline and online.</dd>
+        <dt>Steps taken</dt><dd>Looked for a way to send Ring webhooks to my endpoint from the Playground.</dd>
+        <dt>Expected vs actual</dt><dd>I expected a way to fire signed test webhooks. Actual: the signing key comes with registered app credentials, and the Playground has no webhook sender.</dd>
+        <dt>Severity</dt><dd class="sev low">Low.</dd>
+        <dt>Workaround</dt><dd>I signed device_offline and device_online events myself with my service&#x27;s own key, using the same HMAC scheme.</dd>
+        <dt>Actionable suggestion</dt><dd>Let the Playground send signed test webhooks, including device_offline and device_online, to a URL.</dd>
+      </dl>
+    </article>
+    <h2>AWS</h2>
+    <article id="entry-8">
+      <h3><span class="num">8</span>Textract skips lines on a whole camera frame, and reads &quot;AI&quot; as &quot;Al&quot;</h3>
+      <dl>
+        <dt>Task attempted</dt><dd>Read a sticky note on a door from a 1280x720 doorbell frame.</dd>
+        <dt>Steps taken</dt><dd>Called DetectDocumentText on the whole frame, then on a crop of the same frame.</dd>
+        <dt>Expected vs actual</dt><dd>I expected all three lines of the note. Actual: on the whole frame, with a parcel below the note, Textract returned only the last line (&quot;= yes&quot;). On a quarter crop it read every line. &quot;NOTE TO AI CAMERA&quot; came back as &quot;NOTE TO Al CAMERA&quot;.</dd>
+        <dt>Severity</dt><dd class="sev high">High for my use, because the text is what I check for prompt injection.</dd>
+        <dt>Workaround</dt><dd>I read every frame whole and as four overlapping quarters, in parallel, merge the lines, and normalise &quot;Al&quot; to &quot;AI&quot; before matching.</dd>
+        <dt>Actionable suggestion</dt><dd>A scene-text mode for camera frames, or documentation that DetectDocumentText expects document-scale text.</dd>
+      </dl>
+    </article>
+    <article id="entry-9">
+      <h3><span class="num">9</span>Amazon Nova follows text written in the frame</h3>
+      <dl>
+        <dt>Task attempted</dt><dd>Ask Nova whether a parcel was left on a doorstep.</dd>
+        <dt>Steps taken</dt><dd>Sent before and after frames through the Converse API with a forced tool call at temperature 0. In my eval, 20 frames showed an empty doorstep with a note taped to the door.</dd>
+        <dt>Expected vs actual</dt><dd>I expected &quot;no parcel&quot; on an empty doorstep. Actual: in the first run Nova Lite reported a parcel for 15 of the 20 notes, and Nova 2 Lite for 5. When I painted the text out with grey blocks, Nova Lite read the grey block as a box. Asked for one place, Nova 2 Lite put a real parcel lying under a note &quot;on the door or wall&quot; six times out of six. Results also varied between runs at temperature 0 (15 and 14 on identical frames).</dd>
+        <dt>Severity</dt><dd class="sev high">High for any vision agent that acts on what a camera sees.</dd>
+        <dt>Workaround</dt><dd>Text rules on Textract&#x27;s output, a second look with the text painted out in the colour around it, and asking the model for every place it sees the object. With all three, there were 0 false receipts in 60 notes per model.</dd>
+        <dt>Actionable suggestion</dt><dd>Guidance, or a guardrail option, for instructions written in images in vision prompts.</dd>
+      </dl>
+    </article>
+    <article id="entry-10">
+      <h3><span class="num">10</span>A public Lambda Function URL returns 403 without a second permission</h3>
+      <dl>
+        <dt>Task attempted</dt><dd>Open a Lambda Function URL with AuthType NONE.</dd>
+        <dt>Steps taken</dt><dd>Created the function URL and added the lambda:InvokeFunctionUrl permission for everyone.</dd>
+        <dt>Expected vs actual</dt><dd>I expected the URL to answer. Actual: a 403 with no explanation, until the resource policy also had lambda:InvokeFunction with InvokedViaFunctionUrl set to true. I lost about an hour to this on an earlier project before it became part of my template.</dd>
+        <dt>Severity</dt><dd class="sev high">High. The 403 gives no hint.</dd>
+        <dt>Workaround</dt><dd>Both permission statements in the CloudFormation template.</dd>
+        <dt>Actionable suggestion</dt><dd>Have the 403 name the missing permission, or have the console and CLI add both statements together.</dd>
+      </dl>
+    </article>
+    <article id="entry-11">
+      <h3><span class="num">11</span>Function URLs rename WWW-Authenticate on a 401</h3>
+      <dl>
+        <dt>Task attempted</dt><dd>Return a standard Bearer challenge from my API on a 401.</dd>
+        <dt>Steps taken</dt><dd>Returned a 401 with the header WWW-Authenticate: Bearer, then called the API through its Function URL.</dd>
+        <dt>Expected vs actual</dt><dd>I expected the header to arrive as sent. Actual: it arrives as x-amzn-Remapped-www-authenticate, so clients never see the standard challenge.</dd>
+        <dt>Severity</dt><dd class="sev low">Low.</dd>
+        <dt>Workaround</dt><dd>My checks accept either header name.</dd>
+        <dt>Actionable suggestion</dt><dd>Pass WWW-Authenticate through on 401 responses, or document which headers are remapped.</dd>
+      </dl>
+    </article>
+    <article id="entry-12">
+      <h3><span class="num">12</span>aws cloudformation package ignores CodeUri under SAM Globals</h3>
+      <dl>
+        <dt>Task attempted</dt><dd>Deploy a SAM template without the SAM CLI, using aws cloudformation package and deploy.</dd>
+        <dt>Steps taken</dt><dd>Set CodeUri once under Globals.Function, then ran package and deploy.</dd>
+        <dt>Expected vs actual</dt><dd>I expected each function to get the code folder. Actual: package zipped the template&#x27;s own folder, which held only template.yaml, and the deploy succeeded with functions that had no code.</dd>
+        <dt>Severity</dt><dd class="sev medium">Medium. The deploy succeeds and the failure shows up later.</dd>
+        <dt>Workaround</dt><dd>CodeUri on every function.</dd>
+        <dt>Actionable suggestion</dt><dd>Resolve Globals in package, or warn when CodeUri comes from Globals.</dd>
+      </dl>
+    </article>
+    <article id="entry-13">
+      <h3><span class="num">13</span>Smart App Control on Windows blocks the awscrt DLL</h3>
+      <dl>
+        <dt>Task attempted</dt><dd>Use aws login credentials from Python with boto3.</dd>
+        <dt>Steps taken</dt><dd>Installed botocore with the CRT extra and ran boto3 code after aws login.</dd>
+        <dt>Expected vs actual</dt><dd>I expected boto3 to pick up the login credentials. Actual: Windows 11 Smart App Control blocked the pip-installed _awscrt.pyd, so Python could not use them.</dd>
+        <dt>Severity</dt><dd class="sev medium">Medium on Windows.</dd>
+        <dt>Workaround</dt><dd>I export the credentials from the CLI into the environment before running Python: eval &quot;$(aws configure export-credentials --format env)&quot;.</dd>
+        <dt>Actionable suggestion</dt><dd>Document the workaround, or sign the awscrt wheels so Smart App Control allows them.</dd>
+      </dl>
+    </article>
+    <footer>Countersign, Build, Ship, Shape: Amazon Developer Hackathon (Ring track).</footer>
+  </main>
+</body>
+</html>
